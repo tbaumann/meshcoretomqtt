@@ -40,7 +40,7 @@ You will need to build a custom image with packet logging and/or debug for your 
 
   If you wish to run it in the background run as follows...
   ```
-  python ./mctomqtt.py &
+  nohup python3 mctomqtt.py > output.log 2>&1 &
   ```
 
   In future once stable I will add instructions to run as a service.
@@ -62,7 +62,7 @@ You will need to build a custom image with packet logging and/or debug for your 
   RAW: The raw packet data going through the repeater.
 
   DEBUG: The debug info (if enabled on the repeater build)
-  
+
   PACKETS: The flood or direct packets going through the repeater.
 
 ## Example MQTT data...
