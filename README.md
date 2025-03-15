@@ -58,8 +58,11 @@ You will need to build a custom image with packet logging and/or debug for your 
   TOPIC_PACKETS = "meshcore/packets"
   ```
   Status: The last will and testement (LWT) of each node connected.  Here you can see online / offline status of a node on the MQTT server.
+
   RAW: The raw packet data going through the repeater.
+
   DEBUG: The debug info (if enabled on the repeater build)
+  
   PACKETS: The flood or direct packets going through the repeater.
 
 ## Example MQTT data...
