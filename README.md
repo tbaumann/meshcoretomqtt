@@ -19,9 +19,9 @@ You will need to build a custom image with packet logging and/or debug for your 
 - Plug the repeater into the pi via USB (rak or heltec tested)
 - Configure the repeater with a unique name and setup as per meshcore guides.
 - Ensure python is installed on your pi / server device.
-- Ensure you have paho mqtt client installed
+- Ensure you have paho mqtt and pyserial installed
 
-  `pip3 install paho-mqtt --break-system-packages`
+  `pip install pyserial paho-mqtt --break-system-packages`
 - Download the script...
 
   `wget https://raw.githubusercontent.com/Andrew-a-g/meshcoretomqtt/refs/heads/main/mctomqtt.py`
