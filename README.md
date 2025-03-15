@@ -33,8 +33,17 @@ You will need to build a custom image with packet logging and/or debug for your 
   MQTT_PASS = "MQTT_PASSWORD"
   ```
 - Run the script.
-  `python mctomqtt.py`
+
+  `python ./mctomqtt.py`
+  
   Note: run with `-debug` flag to output info to screen.
+
+  If you wish to run it in the background run as follows...
+  ```
+  python ./mctomqtt.py &
+  ```
+
+  In future once stable I will add instructions to run as a service.
 
 ## Viewing the data
 
