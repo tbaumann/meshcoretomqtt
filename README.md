@@ -25,12 +25,12 @@ You will need to build a custom image with packet logging and/or debug for your 
 - Download the script...
 
   `wget https://raw.githubusercontent.com/Andrew-a-g/meshcoretomqtt/refs/heads/main/mctomqtt.py`
-- Edit the script with your mqtt server.  You will need to update the configuration section with your mqtt server.
+- Edit the config.ini file with your mqtt server.  You will need to update the configuration section with your mqtt server.
   ```
-  MQTT_SERVER = "MQTT_SERVER"
-  MQTT_PORT = 1883
-  MQTT_USER = "MQTT_USER"
-  MQTT_PASS = "MQTT_PASSWORD"
+  server = mqtt_server
+  port = 1883
+  username = mqtt_user
+  password = mqtt_password
   ```
 - Run the script.
 
@@ -82,3 +82,7 @@ Topic: meshcore/packets QoS: 0
 Topic: meshcore/debug QoS: 0
 {"origin": "ag", "timestamp": "2025-03-15T17:08:35.600120", "type": "DEBUG", "message": "DEBUG: 17:08:34 - 15/3/2025 U Dispatcher::checkRecv(), score delay below threshold (-323)"}
 ```
+
+ToDo
+- Complete more thorough testing
+- Fix bugs with keepalive status topic
