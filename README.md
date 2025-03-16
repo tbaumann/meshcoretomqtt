@@ -1,8 +1,10 @@
 # meshcoretomqtt
-A python based script to send meshore debug and packet capture data to MQTT for analysis  Requires meshcore repeater to be connected to a raspberry pi, server or similar linux device able to run python.
+A python based script to send meshore debug and packet capture data to MQTT for analysis.  Requires meshcore repeater to be connected to a raspberry pi, server or similar linux device able to run python.
 
 The goal is to have multiple repeaters logging data to the same MQTT server so you can "easily" troubleshoot packets through the mesh.
 You will need to build a custom image with packet logging and/or debug for your repeater to view the data.  Alternatively you could obtain custom images from someone that can build them for you.
+
+One way of tracking a message through the mesh is filtering the MQTT data on the hash field as each message has a unique hash.  You can see which repeaters the message hits!
 
 ## Usage
 - Setup a raspberry pi (zero / 2 / 3 or 4 recommended)
@@ -80,6 +82,6 @@ Topic: meshcore/packets QoS: 0
 {"origin": "ag loft rpt", "timestamp": "2025-03-15T23:09:00.710459", "type": "PACKET", "direction": "rx", "time": "23:08:59", "date": "15/3/2025", "len": "22", "packet_type": "2", "route": "D", "payload_len": "20", "SNR": "5", "RSSI": "-93", "score": "1000", "hash": "890BFA3069FD1250", "path": "C2 -> E2"}
 ```
 
-ToDo
+## ToDo
 - Complete more thorough testing
 - Fix bugs with keepalive status topic
