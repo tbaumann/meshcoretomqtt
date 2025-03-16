@@ -66,21 +66,18 @@ You will need to build a custom image with packet logging and/or debug for your 
   PACKETS: The flood or direct packets going through the repeater.
 
 ## Example MQTT data...
+
+Note: origin is the repeater node reporting the data to mqtt.  Not the origin of the LoRa packet.
+
+Flood packet...
 ```
-Topic: meshcore/status QoS: 0
-{"status": "online", "timestamp": "2025-03-15T17:08:34.015328", "repeater": "ag"}
-2025-03-15 17:08:34:029
-
-Topic: meshcore/raw QoS: 0
-{"origin": "ag", "timestamp": "2025-03-15T17:08:35.563722", "type": "RAW", "data": "110133E2CAB6E73A661BFC2CA7755CD7F697BD83EBA4AADF10921479801354E2A151A411B4D5673C1C01EDF897AE28E57079FAF5238BB325C10F01E583EEB660ECECDD50AC62925A823CD1D979F9D61B9E9D96294E8B604A86E37E069AE45AD318AA186FBDA0099101F40F0367DAF3FF43524E205465726D696E616C2031"}
-2025-03-15 17:08:35:560
-
 Topic: meshcore/packets QoS: 0
-{"origin": "ag", "timestamp": "2025-03-15T17:08:35.582962", "type": "PACKET", "message": "17:08:34 - 15/3/2025 U: RX, len=126 (type=4, route=F, payload_len=123) SNR=5 RSSI=-96 score=1000 hash=5093FEC3C49AF86A"}
-2025-03-15 17:08:35:604
-
-Topic: meshcore/debug QoS: 0
-{"origin": "ag", "timestamp": "2025-03-15T17:08:35.600120", "type": "DEBUG", "message": "DEBUG: 17:08:34 - 15/3/2025 U Dispatcher::checkRecv(), score delay below threshold (-323)"}
+{"origin": "ag loft rpt", "timestamp": "2025-03-16T00:07:11.191561", "type": "PACKET", "direction": "rx", "time": "00:07:09", "date": "16/3/2025", "len": "87", "packet_type": "5", "route": "F", "payload_len": "83", "SNR": "4", "RSSI": "-93", "score": "1000", "hash": "AC9D2DDDD8395712"}
+```
+Direct packet...
+```
+Topic: meshcore/packets QoS: 0
+{"origin": "ag loft rpt", "timestamp": "2025-03-15T23:09:00.710459", "type": "PACKET", "direction": "rx", "time": "23:08:59", "date": "15/3/2025", "len": "22", "packet_type": "2", "route": "D", "payload_len": "20", "SNR": "5", "RSSI": "-93", "score": "1000", "hash": "890BFA3069FD1250", "path": "C2 -> E2"}
 ```
 
 ToDo
