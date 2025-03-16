@@ -24,10 +24,12 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
 - Ensure you have paho mqtt and pyserial installed
 
   `pip install pyserial paho-mqtt --break-system-packages`
-- Download the script...
+- Download the script and config file...
 
   `wget https://raw.githubusercontent.com/Andrew-a-g/meshcoretomqtt/refs/heads/main/mctomqtt.py`
-- Edit the config.ini file with your mqtt server.  You will need to update the configuration section with your mqtt server.
+  `wget https://raw.githubusercontent.com/Andrew-a-g/meshcoretomqtt/refs/heads/main/config.ini`
+
+- Create/download or edit the config.ini (in the same folder as the script) file with your mqtt server.  You will need to update the configuration section with your mqtt server.
   ```
   server = mqtt_server
   port = 1883
