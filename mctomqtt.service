@@ -1,0 +1,13 @@
+[Unit]
+Description=MeshCore to MQTT Relay
+After=network.target
+
+[Service]
+WorkingDirectory=/<path/to/meshcoretomqtt>
+ExecStart=/<path/to/venv>/bin/python3 /<path/to/meshcoretomqtt>/mctomqtt.py
+KillMode=process
+Restart=on-failure
+Type=exec
+
+[Install]
+WantedBy=multi-user.target
