@@ -312,8 +312,12 @@ class MeshCoreBridge:
             logger.error("Failed to get radio info")
             return
         
-        if not self.connect_mqtt():
-            return
+        while True:
+            if self.connect_mqtt():
+                break
+            else:
+                logger.warning("MQTT connection failed. Retrying...")
+                sleep(1)
         
         try:
             while True:
