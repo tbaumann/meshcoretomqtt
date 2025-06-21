@@ -296,7 +296,7 @@ class MeshCoreBridge:
             if AdvertFlags.HasLocation in flags:
                 name_raw = payload[109:]
             name = name_raw.decode()
-            advert.update({"name_raw": name_raw, "name": name})
+            advert.update({"name": name})
 
         return advert
     
