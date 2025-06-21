@@ -81,11 +81,13 @@ class TestMessageParsing(unittest.TestCase):
     # def test_room_server_advert(self):
     #     self.assertTrue(True)
 
-    invalid_packet = '9080620DE76A5F431639FAFCE74B7248BAE3B3EDD363A010EDB4634ED0AF8960CA7D96FCB207BD71'
+    invalid_packets = ['9080620DE76A5F431639FAFCE74B7248BAE3B3EDD363A010EDB4634ED0AF8960CA7D96FCB207BD71',
+                       '1501C411ADA281FF94A061C2C7ADDD1F6A7076B84FCBC6A02D90B97B583E3CCF3A1DED4B54AC']
     def test_invalid_packet_doesnt_crash(self):
         bridge = MeshCoreBridge(debug=True)
-        result = bridge.decode_and_publish_message(self.invalid_packet)
+        for packet in self.invalid_packets:
+            result = bridge.decode_and_publish_message(packet)
         
-        self.assertIsNone(result)
+            self.assertIsNone(result)
 if __name__ == '__main__':
     unittest.main()

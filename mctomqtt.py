@@ -331,7 +331,7 @@ class MeshCoreBridge:
                    message.update(payload_value)
             else:
                message.update(payload_value)
-        except ValueError:
+        except Exception:
             return None
         
         return message
