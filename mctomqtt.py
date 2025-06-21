@@ -311,17 +311,22 @@ class MeshCoreBridge:
             i = i + 2
         
         message = {
-            "payload_type": payload_type,
-            "payload_version": payload_version,
-            "route_type": route_type,
+            "payload_type": payload_type.value,
+            "payload_version": payload_version.value,
+            "route_type": route_type.value,
             "path": path_values
         }
 
         payload_value = {}
-        if(payload_type == 4): #advert
+        if payload_type is PayloadType.Advert:
             payload_value = self.parse_advert(payload)
         
-        message.update(payload_value)
+        if payload_type is PayloadType.Advert:
+            if payload_value["name"].endswith("^"):
+                message.update(payload_value)
+        else:
+            message.update(payload_value)
+        
         return message
 
 
