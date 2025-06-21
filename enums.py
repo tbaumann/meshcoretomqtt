@@ -28,7 +28,7 @@ class PayloadType(Enum):
     Trace = 0x09
     Custom = 0x0F
 
-class PayloadValue(Enum):
+class PayloadVersion(Enum):
     Version1 = 0x0
     Verison2 = 0x1
     Version3 = 0x2

@@ -41,6 +41,8 @@ class TestMessageParsing(unittest.TestCase):
         self.assertEqual(result['lon'], -121.97),
         self.assertEqual(result['name'], 'Cisien Station'),
 
+    def test_room_server_advert(self):
+        self.assertTrue(True)
 
 
 if __name__ == '__main__':

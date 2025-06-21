@@ -10,7 +10,7 @@ import logging
 import configparser
 from datetime import datetime
 from time import sleep
-from enums import AdvertFlags, PayloadType, PayloadValue, RouteType
+from enums import AdvertFlags, PayloadType, PayloadVersion, RouteType
 
 try:
     import paho.mqtt.client as mqtt
@@ -296,17 +296,13 @@ class MeshCoreBridge:
         byte_data = bytes.fromhex(raw_data)
         
         header = byte_data[0]
-        logger.debug(f'header: {header}')
         path_len = byte_data[1]
-        logger.debug(f'path_len: {path_len}')
         path = byte_data[2: path_len + 2].hex()
-        logger.debug(f'path: {path}')
         payload = byte_data[(path_len + 2):]
-        logger.debug(f'payload: {payload}')
 
-        route_type = header & 0b11
-        payload_type = (header >> 2) & 0b1111
-        payload_version = (header >> 6) & 0b11
+        route_type = RouteType(header & 0b11)
+        payload_type = PayloadType((header >> 2) & 0b1111)
+        payload_version = PayloadVersion((header >> 6) & 0b11)
 
         path_values = []
         i = 0
