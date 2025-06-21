@@ -289,7 +289,7 @@ class MeshCoreBridge:
             lat = int.from_bytes(payload[101:105], 'little', signed=True)/1000000
             lon = int.from_bytes(payload[105:109], 'little', signed=True)/1000000
 
-            advert.update({"lat": lat, "lon": lon})
+            advert.update({"lat": round(lat, 2), "lon": round(lon, 2)})
         
         if AdvertFlags.HasName in flags:
             name_raw = payload[101:]
