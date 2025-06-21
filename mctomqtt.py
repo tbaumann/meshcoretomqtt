@@ -5,10 +5,12 @@ import serial
 import argparse
 import re
 import time
+import calendar
 import logging
 import configparser
 from datetime import datetime
 from time import sleep
+from enum import Flag
 
 try:
     import paho.mqtt.client as mqtt
@@ -16,6 +18,15 @@ except ImportError:
     print("Error: paho-mqtt not installed. Install with:")
     print("pip install paho-mqtt")
     sys.exit(1)
+
+class AdvertFlags(Flag):
+    IsCompanion = 0x1
+    IsRepeater = 0x2
+    IsRoomServer = 0x3
+    HasLocation = 0x10
+    HasFuture1 = 0x20
+    HasFuture2 = 0x30
+    HasName = 0x80
 
 # Regex patterns for message parsing
 RAW_PATTERN = re.compile(r"(\d{2}:\d{2}:\d{2}) - (\d{1,2}/\d{1,2}/\d{4}) U RAW: (.*)")
@@ -81,6 +92,18 @@ class MeshCoreBridge:
                 continue
         logger.error("Failed to connect to any serial port")
         return False
+
+    def set_repeater_time(self):
+        self.ser.flushInput()
+        self.ser.flushOutput()
+        epoc_time = int(calendar.timegm(time.gmtime()))
+        timecmd=f'time {epoc_time}\r\n'
+        self.ser.write(timecmd.encode())
+        logger.debug(f"Sent '{timecmd}' command")
+
+        sleep(0.5)
+        response = self.ser.read_all().decode(errors='replace')
+        logger.debug(f"Raw response: {response}")
 
     def get_repeater_name(self):
         if not self.ser:
@@ -238,10 +261,87 @@ class MeshCoreBridge:
             logger.error(f"MQTT connection error: {str(e)}")
             return False
 
+    def parse_advert(self, payload):
+        # advert header
+        pub_key = payload[0:32]
+        timestamp = int.from_bytes(payload[32:32+4], "little")
+        signature = payload[36:36+64]
+
+        # appdata
+        flags = AdvertFlags(payload[100:101][0])
+        
+        logger.debug(f'{flags}')
+
+        advert = {
+            "public_key": pub_key.hex(),
+            "advert_time": timestamp,
+            "signature": signature.hex(),
+        }
+
+        if AdvertFlags.IsCompanion in flags: 
+            advert.update({"mode": "COMPANION"})
+        elif AdvertFlags.IsRouter in flags:
+            advert.update({"mode": "ROUTER"})
+        elif AdvertFlags.IsRoomServer in flags:
+            advert.update({"mode": "ROOM_SERVER"})
+
+        if AdvertFlags.HasLocation in flags:
+            lat = int.from_bytes(payload[101:105], 'little', signed=True)/1000000
+            lon = int.from_bytes(payload[105:109], 'little', signed=True)/1000000
+
+            advert.update({"lat": lat, "lon": lon})
+        
+        if AdvertFlags.HasName in flags:
+            name_raw = payload[101:]
+            if AdvertFlags.HasLocation in flags:
+                name_raw = payload[109:]
+            name = name_raw.decode()
+            advert.update({"name_raw": name_raw, "name": name})
+
+        return advert
+    
+    def decode_and_publish_message(self, raw_data):
+        logger.debug(f"raw_data to parse: {raw_data}")
+        byte_data = bytes.fromhex(raw_data)
+        
+        header = byte_data[0]
+        logger.debug(f'header: {header}')
+        path_len = byte_data[1]
+        logger.debug(f'path_len: {path_len}')
+        path = byte_data[2: path_len + 2].hex()
+        logger.debug(f'path: {path}')
+        payload = byte_data[(path_len + 2):]
+        logger.debug(f'payload: {payload}')
+
+        route_type = header & 0b11
+        payload_type = (header >> 2) & 0b1111
+        payload_version = (header >> 6) & 0b11
+
+        path_values = []
+        i = 0
+        while i < len(path):
+            path_values.append(path[i:i+2])
+            i = i + 2
+        
+        message = {
+            "payload_type": payload_type,
+            "payload_version": payload_version,
+            "route_type": route_type,
+            "path": path_values
+        }
+
+        payload_value = {}
+        if(payload_type == 4): #advert
+            payload_value = self.parse_advert(payload)
+        
+        message.update(payload_value)
+        return message
+
+
     def parse_and_publish(self, line):
         if not line:
             return
-
+        logger.debug(f"From Radio: {line}")
         message = {
             "origin": self.repeater_name,
             "timestamp": datetime.now().isoformat()
@@ -256,6 +356,10 @@ class MeshCoreBridge:
                     "data": parts[1].strip()
                 })
                 self.safe_publish(self.config.get("topics", "raw"), json.dumps(message))
+
+                decoded_message = self.decode_and_publish_message(parts[1].strip())
+                self.safe_publish(self.config.get("topics", "decoded"), json.dumps(decoded_message))
+
                 return
 
         # Handle DEBUG messages
@@ -270,13 +374,14 @@ class MeshCoreBridge:
         # Handle Packet messages (RX and TX)
         packet_match = PACKET_PATTERN.match(line)
         if packet_match:
+            packet_type = packet_match.group(5)
             payload = {
                 "type": "PACKET",
                 "direction": packet_match.group(3).lower(),  # rx or tx
                 "time": packet_match.group(1),
                 "date": packet_match.group(2),
                 "len": packet_match.group(4),
-                "packet_type": packet_match.group(5),
+                "packet_type": packet_type,
                 "route": packet_match.group(6),
                 "payload_len": packet_match.group(7)
             }
@@ -302,6 +407,8 @@ class MeshCoreBridge:
         if not self.connect_serial():
             return
         
+        self.set_repeater_time()
+
         if not self.get_repeater_name():
             logger.error("Failed to get repeater name")
             return
