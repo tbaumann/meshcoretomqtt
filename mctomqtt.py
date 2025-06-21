@@ -10,7 +10,7 @@ import logging
 import configparser
 from datetime import datetime
 from time import sleep
-from enum import Flag
+from enums import AdvertFlags, PayloadType, PayloadValue, RouteType
 
 try:
     import paho.mqtt.client as mqtt
@@ -18,15 +18,6 @@ except ImportError:
     print("Error: paho-mqtt not installed. Install with:")
     print("pip install paho-mqtt")
     sys.exit(1)
-
-class AdvertFlags(Flag):
-    IsCompanion = 0x1
-    IsRepeater = 0x2
-    IsRoomServer = 0x3
-    HasLocation = 0x10
-    HasFuture1 = 0x20
-    HasFuture2 = 0x30
-    HasName = 0x80
 
 # Regex patterns for message parsing
 RAW_PATTERN = re.compile(r"(\d{2}:\d{2}:\d{2}) - (\d{1,2}/\d{1,2}/\d{4}) U RAW: (.*)")
@@ -280,8 +271,8 @@ class MeshCoreBridge:
 
         if AdvertFlags.IsCompanion in flags: 
             advert.update({"mode": "COMPANION"})
-        elif AdvertFlags.IsRouter in flags:
-            advert.update({"mode": "ROUTER"})
+        elif AdvertFlags.IsRepeater in flags:
+            advert.update({"mode": "REPEATER"})
         elif AdvertFlags.IsRoomServer in flags:
             advert.update({"mode": "ROOM_SERVER"})
 
