@@ -294,38 +294,45 @@ class MeshCoreBridge:
     def decode_and_publish_message(self, raw_data):
         logger.debug(f"raw_data to parse: {raw_data}")
         byte_data = bytes.fromhex(raw_data)
-        
-        header = byte_data[0]
-        path_len = byte_data[1]
-        path = byte_data[2: path_len + 2].hex()
-        payload = byte_data[(path_len + 2):]
+        try:
+            header = byte_data[0]
 
-        route_type = RouteType(header & 0b11)
-        payload_type = PayloadType((header >> 2) & 0b1111)
-        payload_version = PayloadVersion((header >> 6) & 0b11)
+            path_len = byte_data[1]
+            path = byte_data[2: path_len + 2].hex()
+            payload = byte_data[(path_len + 2):]
+            payload_version = PayloadVersion((header >> 6) & 0xC0)
+            print (payload_version)
+            if payload_version != PayloadVersion.Version1:
+                logger.warning(f"Encountered an unknown packet version. Version: {payload_version.value} RAW: {raw_data}")
+                return None
 
-        path_values = []
-        i = 0
-        while i < len(path):
-            path_values.append(path[i:i+2])
-            i = i + 2
-        
-        message = {
-            "payload_type": payload_type.value,
-            "payload_version": payload_version.value,
-            "route_type": route_type.value,
-            "path": path_values
-        }
+            route_type = RouteType(header & 0x03)
+            payload_type = PayloadType((header >> 2) & 0x3C)
 
-        payload_value = {}
-        if payload_type is PayloadType.Advert:
-            payload_value = self.parse_advert(payload)
+            path_values = []
+            i = 0
+            while i < len(path):
+                path_values.append(path[i:i+2])
+                i = i + 2
+            
+            message = {
+                "payload_type": payload_type.value,
+                "payload_version": payload_version.value,
+                "route_type": route_type.value,
+                "path": path_values
+            }
         
-        if payload_type is PayloadType.Advert:
-            if payload_value["name"].endswith("^"):
-                message.update(payload_value)
-        else:
-            message.update(payload_value)
+            payload_value = {}
+            if payload_type is PayloadType.Advert:
+               payload_value = self.parse_advert(payload)
+            
+            if payload_type is PayloadType.Advert:
+               if payload_value["name"].endswith("^"):
+                   message.update(payload_value)
+            else:
+               message.update(payload_value)
+        except ValueError:
+            return None
         
         return message
 
@@ -350,7 +357,8 @@ class MeshCoreBridge:
                 self.safe_publish(self.config.get("topics", "raw"), json.dumps(message))
 
                 decoded_message = self.decode_and_publish_message(parts[1].strip())
-                self.safe_publish(self.config.get("topics", "decoded"), json.dumps(decoded_message))
+                if decoded_message is not None:
+                    self.safe_publish(self.config.get("topics", "decoded"), json.dumps(decoded_message))
 
                 return
 

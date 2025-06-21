@@ -23,12 +23,17 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
 - Ensure python is installed on your pi / server device.
 - Ensure you have paho mqtt and pyserial installed
 
-  `pip install pyserial paho-mqtt --break-system-packages`
+  ```
+  sudo apt update
+  sudo apt install -y python3-venv
+
+  python3 -m venv mctomqtt
+  source mctomqtt/bin/activate
+
+  pip install pyserial paho-mqtt`
 - Download the script and config file...
 
-  `wget https://raw.githubusercontent.com/Andrew-a-g/meshcoretomqtt/refs/heads/main/mctomqtt.py`
-
-  `wget https://raw.githubusercontent.com/Andrew-a-g/meshcoretomqtt/refs/heads/main/config.ini`
+  `git clone https://github.com/Cisien/meshcoretomqtt`
 
 - Create/download or edit the config.ini (in the same folder as the script) file with your mqtt server.  You will need to update the configuration section with your mqtt server.
   ```
@@ -48,7 +53,15 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
   nohup python3 mctomqtt.py > output.log 2>&1 &
   ```
 
-  In future once stable I will add instructions to run as a service.
+  The included mctomqtt.service systemd service file can be installed in /etc/systemd/system/. This file needs to be updated to point to the path where this repo has been cloned to and the path of python in the venv that was created in an earlier step.
+  ```
+  sudo systemctl daemon-reload
+  sudo systemctl enable mctomqtt.service
+  sudo systemctl start mctomqtt.service
+  ```
+
+## Privacy
+MeshCore does not currently have any privacy controls baked into the protocol ([#435](https://github.com/ripplebiz/MeshCore/issues/435)). To compensate for this, the decoding logic will not publish the decoded payload of an advert for any node that does not have a `^` character at the end of its name. Downstream consumers of this data should ignore any packets that include a "sender" or "receiver" that it has not seen a recent advert for.
 
 ## Viewing the data
 
@@ -61,6 +74,7 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
   TOPIC_RAW = "meshcore/raw"
   TOPIC_DEBUG = "meshcore/debug"
   TOPIC_PACKETS = "meshcore/packets"
+  TOPIC_DECODED = "meshcore/decoded"
   ```
   Status: The last will and testement (LWT) of each node connected.  Here you can see online / offline status of a node on the MQTT server.
 
@@ -69,6 +83,8 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
   DEBUG: The debug info (if enabled on the repeater build)
 
   PACKETS: The flood or direct packets going through the repeater.
+
+  DECODED: Packets are decoded (and decrypted when the key is known) and pubished to this topic as unencrypted JSON
 
 ## Example MQTT data...
 
