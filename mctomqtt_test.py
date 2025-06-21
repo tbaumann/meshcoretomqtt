@@ -9,9 +9,9 @@ class TestMessageParsing(unittest.TestCase):
 
         print(result)
 
-        self.assertEqual(result['payload_type'], 4)
-        self.assertEqual(result['route_type'], 1)
-        self.assertEqual(result['payload_version'], 0)
+        self.assertEqual(result['payload_type'], 'Advert')
+        self.assertEqual(result['route_type'], 'Flood')
+        self.assertEqual(result['payload_version'], 'Version1')
         self.assertEqual(result['path'], [])
         self.assertNotIn(member="public_key", container=result.keys())
         self.assertNotIn(member="advert_time", container=result.keys())
@@ -28,14 +28,14 @@ class TestMessageParsing(unittest.TestCase):
 
         print(result)
 
-        self.assertEqual(result['payload_type'], 4)
-        self.assertEqual(result['route_type'], 1)
-        self.assertEqual(result['payload_version'], 0)
+        self.assertEqual(result['payload_type'], 'Advert')
+        self.assertEqual(result['route_type'], 'Flood')
+        self.assertEqual(result['payload_version'], 'Version1')
         self.assertEqual(result['path'], ['c5'])
         self.assertEqual(result['public_key'], '106a641f287c36e515fda4b8059b0e7af4a1b4055ffd64d898fb4d90e76c633d')
         self.assertEqual(result['advert_time'], 1750482139)
         self.assertEqual(result['signature'], 'f3f1a41f69e3c2437110c2979b122df4d3c556011be1669017ffe8abef8a5c565d6ab50cfd31e6840a71683d1cd8b64a540ca3b59830ac08a6cfc55b42b15d02')
-        self.assertEqual(result['mode'], 'COMPANION'), 
+        self.assertEqual(result['mode'], 'Companion'), 
         self.assertEqual(result['lat'], 47.74), 
         self.assertEqual(result['lon'], -121.97),
         self.assertEqual(result['name'], '👽Cisien^'),
@@ -47,9 +47,9 @@ class TestMessageParsing(unittest.TestCase):
 
         print(result)
 
-        self.assertEqual(result['payload_type'], 4)
-        self.assertEqual(result['route_type'], 2)
-        self.assertEqual(result['payload_version'], 0)
+        self.assertEqual(result['payload_type'], 'Advert')
+        self.assertEqual(result['route_type'], 'Direct')
+        self.assertEqual(result['payload_version'], 'Version1')
         self.assertEqual(result['path'], [])
         self.assertNotIn(member="public_key", container=result.keys())
         self.assertNotIn(member="advert_time", container=result.keys())
@@ -66,14 +66,14 @@ class TestMessageParsing(unittest.TestCase):
 
         print(result)
 
-        self.assertEqual(result['payload_type'], 4)
-        self.assertEqual(result['route_type'], 1)
-        self.assertEqual(result['payload_version'], 0)
+        self.assertEqual(result['payload_type'], 'Advert')
+        self.assertEqual(result['route_type'], 'Flood')
+        self.assertEqual(result['payload_version'], 'Version1')
         self.assertEqual(result['path'], [])
         self.assertEqual(result['public_key'], 'c51deec07a23ce758d065fafb3a79014e75ae0dfd9eecaff9a9f27e055a84136')
         self.assertEqual(result['advert_time'], 1750484015)
         self.assertEqual(result['signature'], 'a16177c6615e9384ae43a51786d9eddee61ef53e0251daa7f767b98e91f6848c1687f1020b398a3d8a1d7912625922f697c220983e877ff0d7b160a96efc1e09')
-        self.assertEqual(result['mode'], 'REPEATER'), 
+        self.assertEqual(result['mode'], 'Repeater'), 
         self.assertEqual(result['lat'], 47.74), 
         self.assertEqual(result['lon'], -121.97),
         self.assertEqual(result['name'], 'Cisien Station^'),

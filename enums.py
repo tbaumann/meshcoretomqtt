@@ -9,6 +9,11 @@ class AdvertFlags(Flag):
     HasFuture2 = 0x30
     HasName = 0x80
 
+class DeviceRole(Enum):
+    Companion = 0x1
+    Repeater = 0x2
+    RoomServer = 0x3
+
 class RouteType(Enum):
     TransportFlood = 0x0
     Flood = 0x1

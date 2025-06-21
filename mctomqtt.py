@@ -10,7 +10,7 @@ import logging
 import configparser
 from datetime import datetime
 from time import sleep
-from enums import AdvertFlags, PayloadType, PayloadVersion, RouteType
+from enums import AdvertFlags, PayloadType, PayloadVersion, RouteType, DeviceRole
 
 try:
     import paho.mqtt.client as mqtt
@@ -35,6 +35,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MeshCoreBridge:
+    opted_in_ids = []
+
     def __init__(self, config_file="config.ini", debug=False):
         self.debug = debug
         self.repeater_name = None
@@ -261,8 +263,6 @@ class MeshCoreBridge:
         # appdata
         flags = AdvertFlags(payload[100:101][0])
         
-        logger.debug(f'{flags}')
-
         advert = {
             "public_key": pub_key.hex(),
             "advert_time": timestamp,
@@ -270,11 +270,11 @@ class MeshCoreBridge:
         }
 
         if AdvertFlags.IsCompanion in flags: 
-            advert.update({"mode": "COMPANION"})
+            advert.update({"mode": DeviceRole.Companion.name})
         elif AdvertFlags.IsRepeater in flags:
-            advert.update({"mode": "REPEATER"})
+            advert.update({"mode": DeviceRole.Repeater.name})
         elif AdvertFlags.IsRoomServer in flags:
-            advert.update({"mode": "ROOM_SERVER"})
+            advert.update({"mode": DeviceRole.RoomServer.name})
 
         if AdvertFlags.HasLocation in flags:
             lat = int.from_bytes(payload[101:105], 'little', signed=True)/1000000
@@ -316,9 +316,9 @@ class MeshCoreBridge:
                 i = i + 2
             
             message = {
-                "payload_type": payload_type.value,
-                "payload_version": payload_version.value,
-                "route_type": route_type.value,
+                "payload_type": payload_type.name,
+                "payload_version": payload_version.name,
+                "route_type": route_type.name,
                 "path": path_values
             }
         
@@ -327,8 +327,11 @@ class MeshCoreBridge:
                payload_value = self.parse_advert(payload)
             
             if payload_type is PayloadType.Advert:
-               if payload_value["name"].endswith("^"):
-                   message.update(payload_value)
+                key_prefix = payload_value["public_key"][:2]
+                if payload_value["name"].endswith("^"):
+                    message.update(payload_value)
+                elif key_prefix not in self.opted_in_ids:
+                    self.opted_in_ids.append(key_prefix)
             else:
                message.update(payload_value)
         except Exception:
