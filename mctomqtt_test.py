@@ -89,5 +89,11 @@ class TestMessageParsing(unittest.TestCase):
             result = bridge.decode_and_publish_message(packet)
         
             self.assertIsNone(result)
+
+    def test_chat_message(self):
+        #23:40:12 - 24/6/2025 U: RX, len=56 (type=5, route=F, payload_len=51) SNR=1 RSSI=-104 score=1000 hash=FD1F4A5CCF60F605
+        #23:40:12 - 24/6/2025 U RAW: 1503C558081141E97277E5665ECCC67EA1E908FACB84414CAE7A09FE10A7AC236BB422
+        self.assertTrue(False)
+
 if __name__ == '__main__':
     unittest.main()

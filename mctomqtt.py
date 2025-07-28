@@ -40,6 +40,7 @@ class MeshCoreBridge:
     def __init__(self, config_file="config.ini", debug=False):
         self.debug = debug
         self.repeater_name = None
+        self.repeater_pub_key = None
         self.radio_info = None
         self.ser = None
         self.mqtt_client = None
@@ -121,6 +122,28 @@ class MeshCoreBridge:
         logger.error("Failed to get repeater name from response")
         return False
 
+    def get_repeater_pubkey(self):
+        if not self.ser:
+            return False
+        self.ser.flushInput()
+        self.ser.flushOutput()
+        self.ser.write(b"get public.key\r\n")
+        logger.debug("Sent 'get public.key' command")
+
+        sleep(1.0)
+        response = self.ser.read_all().decode(errors='replace')
+        logger.debug(f"Raw response: {response}")
+
+        if "-> >" in response:
+            self.repeater_pub_key = response.split("-> >")[1].strip()
+            if '\n' in self.repeater_pub_key:
+                self.repeater_pub_key = self.repeater_pub_key.split('\n')[0]
+            logger.info(f"Repeater pub key: {self.repeater_pub_key}")
+            return True
+        
+        logger.error("Failed to get repeater pub key from response")
+        return False
+
     def get_radio_info(self):
         """Query the repeater for radio information"""
         if not self.ser:
@@ -176,6 +199,7 @@ class MeshCoreBridge:
             "status": status,
             "timestamp": datetime.now().isoformat(),
             "repeater": self.repeater_name,
+            "repeater_id": self.repeater_pub_key,
             "radio": self.radio_info if self.radio_info else "unknown"  # Use stored radio info
         }
         if self.safe_publish(self.config.get("topics", "status"), json.dumps(status_msg), retain=True):
@@ -222,7 +246,8 @@ class MeshCoreBridge:
         lwt_payload = json.dumps({
             "status": "offline",
             "timestamp": datetime.now().isoformat(),
-            "repeater": self.repeater_name
+            "repeater": self.repeater_name,
+            "repeater_id": self.repeater_pub_key
         })
         lwt_qos = self.config.getint("mqtt", "qos", fallback=1)  # Use QoS 1 for reliability
         lwt_retain = self.config.getboolean("mqtt", "retain", fallback=True)
@@ -346,6 +371,7 @@ class MeshCoreBridge:
         logger.debug(f"From Radio: {line}")
         message = {
             "origin": self.repeater_name,
+            "origin_id": self.repeater_pub_key,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -409,11 +435,15 @@ class MeshCoreBridge:
     def run(self):
         if not self.connect_serial():
             return
-        
+
         self.set_repeater_time()
 
         if not self.get_repeater_name():
             logger.error("Failed to get repeater name")
+            return
+        
+        if not self.get_repeater_pubkey():
+            logger.error("Failed to get the repeater id (public key)")
             return
         
         # Get radio info before connecting to MQTT
