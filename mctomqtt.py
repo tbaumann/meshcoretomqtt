@@ -421,13 +421,13 @@ class MeshCoreBridge:
                     "SNR": packet_match.group(8),
                     "RSSI": packet_match.group(9),
                     "score": packet_match.group(10),
-                    "time": packet_match.group(11),
-                    "hash": packet_match.group(12)
+                    "time": packet_match.group(12),
+                    "hash": packet_match.group(13)
                 })
 
                 # Add path for route=D
-                if packet_match.group(6) == "D" and packet_match.group(13):
-                    payload["path"] = packet_match.group(13)
+                if packet_match.group(6) == "D" and packet_match.group(14):
+                    payload["path"] = packet_match.group(14)
 
             message.update(payload)
             self.safe_publish(self.config.get("topics", "packets"), json.dumps(message))
