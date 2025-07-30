@@ -23,7 +23,7 @@ except ImportError:
 RAW_PATTERN = re.compile(r"(\d{2}:\d{2}:\d{2}) - (\d{1,2}/\d{1,2}/\d{4}) U RAW: (.*)")
 PACKET_PATTERN = re.compile(
     r"(\d{2}:\d{2}:\d{2}) - (\d{1,2}/\d{1,2}/\d{4}) U: (RX|TX), len=(\d+) \(type=(\d+), route=([A-Z]), payload_len=(\d+)\)"
-    r"(?: SNR=(-?\d+) RSSI=(-?\d+) score=(\d+) hash=([0-9A-F]+)(?: \[(.*)\])?)?"
+    r"(?: SNR=(-?\d+) RSSI=(-?\d+) score=(\d+)( time=(\d+))? hash=([0-9A-F]+)(?: \[(.*)\])?)?"
 )
 
 # Initialize logging (console only)
