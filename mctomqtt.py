@@ -421,7 +421,7 @@ class MeshCoreBridge:
                     "SNR": packet_match.group(8),
                     "RSSI": packet_match.group(9),
                     "score": packet_match.group(10),
-                    "time": packet_match.group(12),
+                    "duration": packet_match.group(12),
                     "hash": packet_match.group(13)
                 })
 
