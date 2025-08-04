@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 class MeshCoreBridge:
     opted_in_ids = []
+    last_raw: bytes = None
 
     def __init__(self, config_file="config.ini", debug=False):
         self.debug = debug
@@ -383,6 +384,7 @@ class MeshCoreBridge:
                     "type": "RAW",
                     "data": parts[1].strip()
                 })
+                self.last_raw = message["data"]
                 self.safe_publish(self.config.get("topics", "raw"), json.dumps(message))
 
                 decoded_message = self.decode_and_publish_message(parts[1].strip())
@@ -412,7 +414,8 @@ class MeshCoreBridge:
                 "len": packet_match.group(4),
                 "packet_type": packet_type,
                 "route": packet_match.group(6),
-                "payload_len": packet_match.group(7)
+                "payload_len": packet_match.group(7),
+                "raw": self.last_raw
             }
 
             # Add SNR, RSSI, score, and hash for RX packets
