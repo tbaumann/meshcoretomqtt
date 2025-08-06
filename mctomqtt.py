@@ -463,14 +463,19 @@ class MeshCoreBridge:
                 logger.warning("MQTT connection failed. Retrying...")
                 sleep(1)
         
+
         try:
             while True:
-                # Check for serial data
-                if self.ser.in_waiting > 0:
-                    line = self.ser.readline().decode(errors='replace').strip()
-                    logger.debug(f"RX: {line}")
-                    self.parse_and_publish(line)
-                
+                try:
+                    # Check for serial data
+                    if self.ser.in_waiting > 0:
+                        line = self.ser.readline().decode(errors='replace').strip()
+                        logger.debug(f"RX: {line}")
+                        self.parse_and_publish(line)
+                except OSError:
+                   logger.warning("Serial connection unavailable, trying to reconnect")
+                   self.connect_serial()
+                   sleep(0.5)
                 sleep(0.01)
                 
         except KeyboardInterrupt:
