@@ -265,8 +265,7 @@ class MeshCoreBridge:
                 self.config.getint("mqtt", "port"),
                 keepalive=30  # Reduced keepalive for faster detection
             )
-            self.mqtt_client.reconnect()
-            self.mqtt_client.reconnect_delay_set()
+            
             self.mqtt_client.loop_start()  # Start the MQTT loop
             logger.debug("MQTT loop started")
             return True
