@@ -179,9 +179,9 @@ class MeshCoreBridge:
             self.mqtt_connected = False
             logger.error(f"MQTT connection failed with code {rc}")
 
-    def on_mqtt_disconnect(self, client, userdata, rc):
+    def on_mqtt_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         self.mqtt_connected = False
-        logger.warning(f"Disconnected from MQTT broker (code: {rc})")
+        logger.warning(f"Disconnected from MQTT broker (code: {reason_code})")
         self.attempt_reconnect()
 
     def attempt_reconnect(self):
