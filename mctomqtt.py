@@ -230,12 +230,12 @@ class MeshCoreBridge:
 
         client_id = self.sanitize_client_id(self.repeater_name)
         logger.info(f"Using client ID: {client_id}")
-
-        self.mqtt_client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2,
-            client_id=client_id,
-            clean_session=False
-        )
+        if not self.mqtt_client:
+            self.mqtt_client = mqtt.Client(
+                mqtt.CallbackAPIVersion.VERSION2,
+                client_id=client_id,
+                clean_session=False
+            )
         
         self.mqtt_client.username_pw_set(
             self.config.get("mqtt", "username"),
@@ -262,12 +262,14 @@ class MeshCoreBridge:
         
         logger.debug(f"Set LWT for topic: {lwt_topic}, payload: {lwt_payload}, QoS: {lwt_qos}, retain: {lwt_retain}")
         
+        if not self.mqtt_client.on_disconnect:
         # Set callbacks
-        self.mqtt_client.on_connect = self.on_mqtt_connect
-        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
+            self.mqtt_client.on_connect = self.on_mqtt_connect
+            self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         
         # Connect to broker
         try:
+            self.mqtt_client.loop_stop()
             self.mqtt_client.connect(
                 self.config.get("mqtt", "server"),
                 self.config.getint("mqtt", "port"),
