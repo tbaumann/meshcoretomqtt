@@ -183,7 +183,7 @@ class MeshCoreBridge:
         self.mqtt_connected = False
         logger.warning(f"Disconnected from MQTT broker (code: {reason_code})")
         logger.warning("Exiting...")
-        exit(-1)
+        sys.exit(-1)
 
     def publish_status(self, status):
         """Publish status with additional information"""
