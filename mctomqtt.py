@@ -329,7 +329,7 @@ class MeshCoreBridge:
             path = byte_data[2: path_len + 2].hex()
             payload = byte_data[(path_len + 2):]
             payload_version = PayloadVersion((header >> 6) & 0xC0)
-            print (payload_version)
+
             if payload_version != PayloadVersion.Version1:
                 logger.warning(f"Encountered an unknown packet version. Version: {payload_version.value} RAW: {raw_data}")
                 return None
