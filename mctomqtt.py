@@ -188,7 +188,7 @@ class MeshCoreBridge:
         while not self.mqtt_connected:
             try:
                 logger.info("Attempting to reconnect to MQTT broker...")
-                self.mqtt_client.connect()
+                self.connect_mqtt()
                 sleep(5)  # Wait before retrying
             except Exception as e:
                 logger.error(f"Reconnect failed: {str(e)}")
