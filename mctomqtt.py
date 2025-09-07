@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
 class MeshCoreBridge:
     opted_in_ids = []
     last_raw: bytes = None
-    should_exit: bool = False
 
     def __init__(self, config_file="config.ini", debug=False):
         self.debug = debug
@@ -47,6 +46,7 @@ class MeshCoreBridge:
         self.ser = None
         self.mqtt_client = None
         self.mqtt_connected = False
+        self.should_exit = False
 
         # Load configuration
         self.config = configparser.ConfigParser()
@@ -182,7 +182,7 @@ class MeshCoreBridge:
 
     def on_mqtt_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         self.mqtt_connected = False
-        logger.warning(f"Disconnected from MQTT broker (code: {reason_code})")
+        logger.warning(f"Disconnected from MQTT broker (code: {reason_code}; flags: {disconnect_flags}; userdata: {userdata}; properties: {properties})")
         logger.warning("Exiting...")
         self.should_exit = True
 
@@ -265,7 +265,7 @@ class MeshCoreBridge:
                 self.config.getint("mqtt", "port"),
                 keepalive=30  # Reduced keepalive for faster detection
             )
-            
+
             self.mqtt_client.loop_start()  # Start the MQTT loop
             logger.debug("MQTT loop started")
             return True
@@ -456,7 +456,6 @@ class MeshCoreBridge:
                 logger.warning("MQTT connection failed. Retrying...")
                 sleep(1)
         
-
         try:
             while True:
                 if self.should_exit:
