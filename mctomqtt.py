@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 class MeshCoreBridge:
     opted_in_ids = []
     last_raw: bytes = None
+    should_exit: bool = False
 
     def __init__(self, config_file="config.ini", debug=False):
         self.debug = debug
@@ -183,7 +184,7 @@ class MeshCoreBridge:
         self.mqtt_connected = False
         logger.warning(f"Disconnected from MQTT broker (code: {reason_code})")
         logger.warning("Exiting...")
-        sys.exit(-1)
+        self.should_exit = True
 
     def publish_status(self, status):
         """Publish status with additional information"""
@@ -459,6 +460,8 @@ class MeshCoreBridge:
 
         try:
             while True:
+                if self.should_exit:
+                    sys.exit(-1)
                 try:
                     # Check for serial data
                     if self.ser.in_waiting > 0:
