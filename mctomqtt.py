@@ -182,17 +182,8 @@ class MeshCoreBridge:
     def on_mqtt_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         self.mqtt_connected = False
         logger.warning(f"Disconnected from MQTT broker (code: {reason_code})")
-        self.attempt_reconnect()
-
-    def attempt_reconnect(self):
-        while not self.mqtt_connected:
-            try:
-                logger.info("Attempting to reconnect to MQTT broker...")
-                self.connect_mqtt()
-                sleep(5)  # Wait before retrying
-            except Exception as e:
-                logger.error(f"Reconnect failed: {str(e)}")
-                sleep(5)
+        logger.warning("Exiting...")
+        exit(-1)
 
     def publish_status(self, status):
         """Publish status with additional information"""
@@ -230,12 +221,11 @@ class MeshCoreBridge:
 
         client_id = self.sanitize_client_id(self.repeater_name)
         logger.info(f"Using client ID: {client_id}")
-        if not self.mqtt_client:
-            self.mqtt_client = mqtt.Client(
-                mqtt.CallbackAPIVersion.VERSION2,
-                client_id=client_id,
-                clean_session=False
-            )
+        self.mqtt_client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id=client_id,
+            clean_session=False
+        )
         
         self.mqtt_client.username_pw_set(
             self.config.get("mqtt", "username"),
@@ -262,10 +252,9 @@ class MeshCoreBridge:
         
         logger.debug(f"Set LWT for topic: {lwt_topic}, payload: {lwt_payload}, QoS: {lwt_qos}, retain: {lwt_retain}")
         
-        if not self.mqtt_client.on_disconnect:
         # Set callbacks
-            self.mqtt_client.on_connect = self.on_mqtt_connect
-            self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         
         # Connect to broker
         try:
