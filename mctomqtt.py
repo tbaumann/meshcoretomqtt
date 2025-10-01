@@ -220,7 +220,7 @@ class MeshCoreBridge:
             logger.error("Cannot connect to MQTT without repeater name")
             return False
 
-        client_id = self.sanitize_client_id(self.repeater_name)
+        client_id = self.sanitize_client_id(self.repeater_pub_key)
         logger.info(f"Using client ID: {client_id}")
         self.mqtt_client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
