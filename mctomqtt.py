@@ -10,7 +10,6 @@ import logging
 import configparser
 from datetime import datetime
 from time import sleep
-from enums import AdvertFlags, PayloadType, PayloadVersion, RouteType, DeviceRole
 
 try:
     import paho.mqtt.client as mqtt
@@ -35,7 +34,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MeshCoreBridge:
-    opted_in_ids = []
     last_raw: bytes = None
 
     def __init__(self, config_file="config.ini", debug=False):
@@ -79,6 +77,7 @@ class MeshCoreBridge:
                     timeout=timeout,
                     rtscts=False
                 )
+                self.ser.write("\r\n\r\n")
                 self.ser.flushInput()
                 self.ser.flushOutput()
                 logger.info(f"Connected to {port}")
@@ -204,7 +203,9 @@ class MeshCoreBridge:
             return False
 
         try:
-            qos = self.config.getint("mqtt", "qos", fallback=1)  # Use QoS 1 for reliability
+            qos = self.config.getint("mqtt", "qos", fallback=0)
+            if qos == 1:
+                qos = 0 # force qos=1 to 0 because qos 1 can cause retry storms.
             result = self.mqtt_client.publish(topic, payload, qos=qos, retain=retain)
             if result.rc != mqtt.MQTT_ERR_SUCCESS:
                 logger.error(f"Publish failed to {topic}: {mqtt.error_string(result.rc)}")
@@ -272,93 +273,7 @@ class MeshCoreBridge:
         except Exception as e:
             logger.error(f"MQTT connection error: {str(e)}")
             return False
-
-    def parse_advert(self, payload):
-        # advert header
-        pub_key = payload[0:32]
-        timestamp = int.from_bytes(payload[32:32+4], "little")
-        signature = payload[36:36+64]
-
-        # appdata
-        flags = AdvertFlags(payload[100:101][0])
         
-        advert = {
-            "public_key": pub_key.hex(),
-            "advert_time": timestamp,
-            "signature": signature.hex(),
-        }
-
-        if AdvertFlags.IsCompanion in flags: 
-            advert.update({"mode": DeviceRole.Companion.name})
-        elif AdvertFlags.IsRepeater in flags:
-            advert.update({"mode": DeviceRole.Repeater.name})
-        elif AdvertFlags.IsRoomServer in flags:
-            advert.update({"mode": DeviceRole.RoomServer.name})
-
-        if AdvertFlags.HasLocation in flags:
-            lat = int.from_bytes(payload[101:105], 'little', signed=True)/1000000
-            lon = int.from_bytes(payload[105:109], 'little', signed=True)/1000000
-
-            advert.update({"lat": round(lat, 2), "lon": round(lon, 2)})
-        
-        if AdvertFlags.HasName in flags:
-            name_raw = payload[101:]
-            if AdvertFlags.HasLocation in flags:
-                name_raw = payload[109:]
-            name = name_raw.decode()
-            advert.update({"name": name})
-
-        return advert
-    
-    def decode_and_publish_message(self, raw_data):
-        logger.debug(f"raw_data to parse: {raw_data}")
-        byte_data = bytes.fromhex(raw_data)
-        try:
-            header = byte_data[0]
-
-            path_len = byte_data[1]
-            path = byte_data[2: path_len + 2].hex()
-            payload = byte_data[(path_len + 2):]
-            payload_version = PayloadVersion((header >> 6) & 0xC0)
-
-            if payload_version != PayloadVersion.Version1:
-                logger.warning(f"Encountered an unknown packet version. Version: {payload_version.value} RAW: {raw_data}")
-                return None
-
-            route_type = RouteType(header & 0x03)
-            payload_type = PayloadType((header >> 2) & 0x3C)
-
-            path_values = []
-            i = 0
-            while i < len(path):
-                path_values.append(path[i:i+2])
-                i = i + 2
-            
-            message = {
-                "payload_type": payload_type.name,
-                "payload_version": payload_version.name,
-                "route_type": route_type.name,
-                "path": path_values
-            }
-        
-            payload_value = {}
-            if payload_type is PayloadType.Advert:
-               payload_value = self.parse_advert(payload)
-            
-            if payload_type is PayloadType.Advert:
-                key_prefix = payload_value["public_key"][:2]
-                if payload_value["name"].endswith("^"):
-                    message.update(payload_value)
-                elif key_prefix not in self.opted_in_ids:
-                    self.opted_in_ids.append(key_prefix)
-            else:
-               message.update(payload_value)
-        except Exception:
-            return None
-        
-        return message
-
-
     def parse_and_publish(self, line):
         if not line:
             return
@@ -373,27 +288,17 @@ class MeshCoreBridge:
         if "U RAW:" in line:
             parts = line.split("U RAW:")
             if len(parts) > 1:
-                message.update({
-                    "type": "RAW",
-                    "data": parts[1].strip()
-                })
-                self.last_raw = message["data"]
-                self.safe_publish(self.config.get("topics", "raw"), json.dumps(message))
-
-                decoded_message = self.decode_and_publish_message(parts[1].strip())
-                if decoded_message is not None:
-                    self.safe_publish(self.config.get("topics", "decoded"), json.dumps(decoded_message))
-
-                return
+                self.last_raw = parts[1].strip()
 
         # Handle DEBUG messages
-        if line.startswith("DEBUG"):
-            message.update({
-                "type": "DEBUG",
-                "message": line
-            })
-            self.safe_publish(self.config.get("topics", "debug"), json.dumps(message))
-            return
+        if self.debug:
+            if line.startswith("DEBUG"):
+                message.update({
+                    "type": "DEBUG",
+                    "message": line
+                })
+                self.safe_publish(self.config.get("topics", "debug"), json.dumps(message))
+                return
 
         # Handle Packet messages (RX and TX)
         packet_match = PACKET_PATTERN.match(line)
@@ -484,6 +389,6 @@ if __name__ == "__main__":
     
     if args.debug:
         logger.setLevel(logging.DEBUG)
-    
+
     bridge = MeshCoreBridge(debug=args.debug)
     bridge.run()

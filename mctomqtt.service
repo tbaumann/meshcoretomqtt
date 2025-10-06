@@ -1,10 +1,11 @@
 [Unit]
 Description=MeshCore to MQTT Relay
-After=network.target
+After=time-sync.target
+Wants=time-sync.target
 
 [Service]
-WorkingDirectory=/<path/to/meshcoretomqtt>
-ExecStart=/<path/to/venv>/bin/python3 /<path/to/meshcoretomqtt>/mctomqtt.py
+WorkingDirectory=</path/to/meshcoretomqtt>
+ExecStart=update_and_start.sh
 KillMode=process
 Restart=on-failure
 Type=exec
