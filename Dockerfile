@@ -6,11 +6,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /opt
 
-RUN apt-get update && apt-get install -y python3-pip
+RUN apt-get update && apt-get install -y python3-pip nodejs npm
 
 RUN pip install pyserial paho-mqtt --break-system-packages
 
+RUN npm install -g @michaelhart/meshcore-decoder
+
 COPY ./mctomqtt.py /opt
+COPY ./auth_token.py /opt
 COPY ./config.ini /opt
 
 

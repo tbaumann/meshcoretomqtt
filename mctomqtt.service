@@ -4,6 +4,9 @@ After=time-sync.target
 Wants=time-sync.target
 
 [Service]
+# Run as the user who installed npm packages, NOT root
+# Replace <username> with your actual username
+User=<username>
 WorkingDirectory=</path/to/meshcoretomqtt>
 ExecStart=update_and_start.sh
 KillMode=process

@@ -27,20 +27,40 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
   sudo apt update
   sudo apt install -y python3-venv
 
+  # For auth token support (optional) - installs nvm (node version manager), node and npm lts, and meshcore-decoder
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+  nvm install --lts
+  npm install -g @michaelhart/meshcore-decoder
+
   python3 -m venv mctomqtt
   source mctomqtt/bin/activate
 
-  pip install pyserial paho-mqtt`
+  pip install pyserial paho-mqtt
+  ```
 - Download the script and config file...
 
   `git clone https://github.com/Cisien/meshcoretomqtt`
 
 - Create/download or edit the config.ini (in the same folder as the script) file with your mqtt server.  You will need to update the configuration section with your mqtt server.
-  ```
+  ```ini
+  [mqtt]
   server = mqtt_server
   port = 1883
   username = mqtt_user
   password = mqtt_password
+  
+  # Optional: Add secondary MQTT broker
+  [mqtt2]
+  enabled = true
+  server = mqtt-us-v1.letsmesh.net
+  use_auth_token = true
+  token_audience = mqtt-us-v1.letsmesh.net
+  port = 443
+  transport = websockets
+  use_tls = true
+  qos = 0
+  retain = true
+  keepalive = 60
   ```
 - Run the script.
 
@@ -53,12 +73,33 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
   nohup python3 mctomqtt.py > output.log 2>&1 &
   ```
 
-  The included mctomqtt.service systemd service file can be installed in /etc/systemd/system/. This file needs to be updated to point to the path where this repo has been cloned to and the path of python in the venv that was created in an earlier step.
+  To run as a systemd service, use the included service file generator:
   ```
+  chmod +x generate-service.sh
+  ./generate-service.sh
+  ```
+  
+  This will create a `mctomqtt.service` file configured for your system. Then install it:
+  ```
+  sudo cp mctomqtt.service /etc/systemd/system/
   sudo systemctl daemon-reload
   sudo systemctl enable mctomqtt.service
   sudo systemctl start mctomqtt.service
   ```
+
+### Auth Token Authentication
+For public key based authentication:
+
+1. Ensure your MeshCore device firmware supports the `get prv.key` command (recent firmware versions)
+
+2. Set `use_auth_token = true` in your config for the broker section
+
+3. The script will automatically:
+   - Read the private key from the connected MeshCore device via serial
+   - Generate JWT auth tokens using the device's private key
+   - Authenticate using the `v1_{PUBLIC_KEY}` username format
+
+**Note:** The private key is read directly from the device and used for signing only. It's never transmitted or saved to disk.
 
 ## Privacy
 MeshCore does not currently have any privacy controls baked into the protocol ([#435](https://github.com/ripplebiz/MeshCore/issues/435)). To compensate for this, the decoding logic will not publish the decoded payload of an advert for any node that does not have a `^` character at the end of its name. Downstream consumers of this data should ignore any packets that include a "sender" or "receiver" that it has not seen a recent advert for.
