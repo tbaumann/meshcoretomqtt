@@ -1,105 +1,329 @@
 # meshcoretomqtt
-A python based script to send meshore debug and packet capture data to MQTT for analysis.  Requires meshcore repeater to be connected to a raspberry pi, server or similar linux device able to run python.
+A Python-based script to send MeshCore debug and packet capture data to MQTT for analysis. Requires a MeshCore repeater to be connected to a Raspberry Pi, server, or similar device running Python.
 
-The goal is to have multiple repeaters logging data to the same MQTT server so you can "easily" troubleshoot packets through the mesh.
-You will need to build a custom image with packet logging and/or debug for your repeater to view the data.  Alternatively you could obtain custom images from someone that can build them for you.
+The goal is to have multiple repeaters logging data to the same MQTT server so you can easily troubleshoot packets through the mesh. You will need to build a custom image with packet logging and/or debug for your repeater to view the data.
 
-One way of tracking a message through the mesh is filtering the MQTT data on the hash field as each message has a unique hash.  You can see which repeaters the message hits!
+One way of tracking a message through the mesh is filtering the MQTT data on the hash field as each message has a unique hash. You can see which repeaters the message hits!
 
-## Usage
-- Setup a raspberry pi (zero / 2 / 3 or 4 recommended)
-- Setup / compile / flash a meshcore repater with the appropriate build flags...
+## Quick Install
 
-  Recommended minimum...
-  ```
-    -D MESH_PACKET_LOGGING=1
-  ```
-  You can also add the following if you want debug data too...
-  ```
-    -D MESH_DEBUG=1
-  ```
-- Plug the repeater into the pi via USB (rak or heltec tested)
-- Configure the repeater with a unique name and setup as per meshcore guides.
-- Ensure python is installed on your pi / server device.
-- Ensure you have paho mqtt and pyserial installed
+### One-Line Installation (Recommended)
+```bash
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/install.sh | bash
+```
 
-  ```
-  sudo apt update
-  sudo apt install -y python3-venv
+### Regional Pre-Configuration
+Use a regional configuration template for quick setup:
 
-  # For auth token support (optional) - installs nvm (node version manager), node and npm lts, and meshcore-decoder
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  nvm install --lts
-  npm install -g @michaelhart/meshcore-decoder
+```bash
+# PugetMesh (Seattle, WA)
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/install.sh | \
+  bash -s -- --config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/configs/.env.pugetmesh
+```
 
-  python3 -m venv mctomqtt
-  source mctomqtt/bin/activate
+See [configs/README.md](configs/README.md) for more regional configurations.
 
-  pip install pyserial paho-mqtt
-  ```
-- Download the script and config file...
+### Custom Configuration URL
+Use your own configuration (Gist, repo, etc.):
 
-  `git clone https://github.com/Cisien/meshcoretomqtt`
+```bash
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/install.sh | \
+  bash -s -- --config https://gist.githubusercontent.com/username/abc123/raw/my-config.env
+```
 
-- Create/download or edit the config.ini (in the same folder as the script) file with your mqtt server.  You will need to update the configuration section with your mqtt server.
-  ```ini
-  [mqtt]
-  server = mqtt_server
-  port = 1883
-  username = mqtt_user
-  password = mqtt_password
-  
-  # Optional: Add secondary MQTT broker
-  [mqtt2]
-  enabled = true
-  server = mqtt-us-v1.letsmesh.net
-  use_auth_token = true
-  token_audience = mqtt-us-v1.letsmesh.net
-  port = 443
-  transport = websockets
-  use_tls = true
-  qos = 0
-  retain = true
-  keepalive = 60
-  ```
-- Run the script.
+### Custom Repository/Branch
+Install from a fork or custom branch:
 
-  `python ./mctomqtt.py`
-  
-  Note: run with `-debug` flag to output info to screen.
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourusername/meshcoretomqtt/yourbranch/install.sh | \
+  bash -s -- --repo yourusername/meshcoretomqtt --branch yourbranch
+```
 
-  If you wish to run it in the background run as follows...
-  ```
-  nohup python3 mctomqtt.py > output.log 2>&1 &
-  ```
+The installer will:
+- Guide you through interactive configuration (or use provided config)
+- Set up Python virtual environment
+- Configure one or multiple MQTT brokers
+- Install as a system service (optional)
+- Handle both Linux (systemd) and macOS (launchd)
+- Store update source for future updates
 
-  To run as a systemd service, use the included service file generator:
-  ```
-  chmod +x generate-service.sh
-  ./generate-service.sh
-  ```
-  
-  This will create a `mctomqtt.service` file configured for your system. Then install it:
-  ```
-  sudo cp mctomqtt.service /etc/systemd/system/
-  sudo systemctl daemon-reload
-  sudo systemctl enable mctomqtt.service
-  sudo systemctl start mctomqtt.service
-  ```
+### Local Testing
+If you want to test the installer locally:
+```bash
+git clone https://github.com/Cisien/meshcoretomqtt
+cd meshcoretomqtt
+LOCAL_INSTALL=$(pwd) ./install.sh
+```
 
-### Auth Token Authentication
-For public key based authentication:
+## Prerequisites
 
-1. Ensure your MeshCore device firmware supports the `get prv.key` command (recent firmware versions)
+### Hardware Setup
+1. Setup a Raspberry Pi (Zero / 2 / 3 or 4 recommended) or similar Linux/macOS device
+2. Build/flash a MeshCore repeater with appropriate build flags:
+   
+   **Recommended minimum:**
+   ```
+   -D MESH_PACKET_LOGGING=1
+   ```
+   
+   **Optional debug data:**
+   ```
+   -D MESH_DEBUG=1
+   ```
 
-2. Set `use_auth_token = true` in your config for the broker section
+3. Plug the repeater into the device via USB (RAK or Heltec tested)
+4. Configure the repeater with a unique name as per MeshCore guides
 
-3. The script will automatically:
-   - Read the private key from the connected MeshCore device via serial
-   - Generate JWT auth tokens using the device's private key
-   - Authenticate using the `v1_{PUBLIC_KEY}` username format
+### Software Requirements
+- Python 3.7 or higher
+- For auth token support (optional): Node.js and `@michaelhart/meshcore-decoder`
+
+The installer handles these dependencies automatically!
+
+## Configuration
+
+Configuration uses environment files (`.env` and `.env.local`):
+- `.env` - Contains default values (don't edit, will be overwritten on updates)
+- `.env.local` - Your custom configuration (gitignored, never overwritten)
+
+### Manual Configuration
+If you need to manually edit configuration after installation:
+
+```bash
+# Edit your local configuration
+nano ~/.meshcoretomqtt/.env.local
+```
+
+#### Basic Example (.env.local)
+```bash
+# Serial Configuration
+SERIAL_PORTS=/dev/ttyACM0
+
+# Global IATA Code (3-letter airport code for your location)
+IATA=SEA
+
+# MQTT Broker 1 - Username/Password
+MQTT1_ENABLED=true
+MQTT1_SERVER=mqtt.example.com
+MQTT1_PORT=1883
+MQTT1_USERNAME=my_username
+MQTT1_PASSWORD=my_password
+```
+
+#### Advanced Example with Multiple Brokers
+```bash
+# Serial Configuration
+SERIAL_PORTS=/dev/ttyACM0
+IATA=SEA
+
+# Broker 1 - Local MQTT with Username/Password
+MQTT1_ENABLED=true
+MQTT1_SERVER=mqtt.local
+MQTT1_PORT=1883
+MQTT1_USERNAME=localuser
+MQTT1_PASSWORD=localpass
+
+# Broker 2 - Public Observer Network with Auth Token
+MQTT2_ENABLED=true
+MQTT2_SERVER=mqtt-us-v1.letsmesh.net
+MQTT2_PORT=443
+MQTT2_TRANSPORT=websockets
+MQTT2_USE_TLS=true
+MQTT2_USE_AUTH_TOKEN=true
+MQTT2_TOKEN_AUDIENCE=mqtt-us-v1.letsmesh.net
+```
+
+### Topic Templates
+Topics support template variables:
+- `{IATA}` - Your 3-letter location code
+- `{PUBLIC_KEY}` - Device public key (auto-detected)
+
+**Global topics** (apply to all brokers by default):
+```bash
+TOPIC_STATUS=meshcore/{IATA}/{PUBLIC_KEY}/status
+TOPIC_PACKETS=meshcore/{IATA}/{PUBLIC_KEY}/packets
+TOPIC_DEBUG=meshcore/{IATA}/{PUBLIC_KEY}/debug
+TOPIC_RAW=meshcore/{IATA}/{PUBLIC_KEY}/raw
+```
+
+**Per-broker topic overrides** (optional):
+```bash
+# Broker 2 uses different topic structure
+MQTT2_TOPIC_STATUS=custom/{IATA}/{PUBLIC_KEY}/status
+MQTT2_TOPIC_PACKETS=custom/{IATA}/{PUBLIC_KEY}/data
+MQTT2_IATA=LAX  # Different IATA code for this broker
+```
+
+This allows sending the same data to multiple brokers with different topic structures.
+
+## Authentication Methods
+
+### 1. Username/Password
+```bash
+MQTT1_ENABLED=true
+MQTT1_SERVER=mqtt.example.com
+MQTT1_USERNAME=your_username
+MQTT1_PASSWORD=your_password
+```
+
+### 2. Auth Token (Public Key Based)
+Requires `@michaelhart/meshcore-decoder` and firmware supporting `get prv.key` command.
+
+```bash
+MQTT1_ENABLED=true
+MQTT1_SERVER=mqtt-us-v1.letsmesh.net
+MQTT1_USE_AUTH_TOKEN=true
+MQTT1_TOKEN_AUDIENCE=mqtt-us-v1.letsmesh.net
+```
+
+The script will:
+- Read the private key from the connected MeshCore device via serial
+- Generate JWT auth tokens using the device's private key
+- Authenticate using the `v1_{PUBLIC_KEY}` username format
 
 **Note:** The private key is read directly from the device and used for signing only. It's never transmitted or saved to disk.
+
+To install meshcore-decoder:
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+# Restart shell or: source ~/.bashrc
+nvm install --lts
+npm install -g @michaelhart/meshcore-decoder
+```
+
+## Running the Script
+
+### As a System Service (Recommended)
+The installer sets this up automatically. Manual commands:
+
+**Linux (systemd):**
+```bash
+sudo systemctl start mctomqtt      # Start service
+sudo systemctl stop mctomqtt       # Stop service
+sudo systemctl status mctomqtt     # Check status
+sudo systemctl restart mctomqtt    # Restart service
+sudo journalctl -u mctomqtt -f     # View logs
+```
+
+**macOS (launchd):**
+```bash
+launchctl start com.meshcore.mctomqtt    # Start service
+launchctl stop com.meshcore.mctomqtt     # Stop service
+launchctl list | grep mctomqtt           # Check status
+tail -f ~/Library/Logs/mctomqtt.log      # View logs
+```
+
+### Manual Execution
+```bash
+cd ~/.meshcoretomqtt
+./venv/bin/python3 mctomqtt.py
+```
+
+With debug output:
+```bash
+./venv/bin/python3 mctomqtt.py -debug
+```
+
+## Updates
+
+### Automatic Updates
+The installer stores the update source (repo and branch) in your configuration. To update:
+
+```bash
+cd ~/.meshcoretomqtt
+./update.sh
+```
+
+The updater will:
+- Use the stored update source from your installation
+- Stop the service (if running)
+- Backup your `.env.local` configuration
+- Download and verify updated files
+- Restore your configuration
+- Restart the service (if it was running)
+
+### Manual Update Source
+You can override the update source in `.env.local`:
+
+```bash
+# In ~/.meshcoretomqtt/.env.local
+UPDATE_REPO=yourusername/meshcoretomqtt
+UPDATE_BRANCH=yourbranch
+```
+
+### Re-running the Installer
+Alternatively, re-run the installer to update and reconfigure:
+
+```bash
+cd ~/.meshcoretomqtt
+LOCAL_INSTALL=$(pwd) ./install.sh
+```
+
+This will detect existing installation and offer to update/reconfigure.
+
+## Reconfiguration
+
+To reconfigure without updating:
+```bash
+cd ~/.meshcoretomqtt
+LOCAL_INSTALL=$(pwd) ./install.sh
+```
+
+Select "Reconfigure" when prompted, or edit `.env.local` directly.
+
+## Uninstallation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/uninstall.sh | bash
+```
+
+Or locally:
+```bash
+cd ~/.meshcoretomqtt
+./uninstall.sh
+```
+
+The uninstaller will:
+- Stop and remove the service
+- Offer to backup your `.env.local`
+- Prompt before removing configuration
+- Clean up all installed files
+
+## Docker Installation (Alternative)
+
+For containerized deployment:
+
+1. Create a configuration directory:
+```bash
+mkdir -p ~/mctomqtt-config
+```
+
+2. Create your `.env.local` in the config directory:
+```bash
+cat > ~/mctomqtt-config/.env.local << 'EOF'
+SERIAL_PORTS=/dev/ttyACM0
+IATA=SEA
+MQTT1_ENABLED=true
+MQTT1_SERVER=mqtt.example.com
+MQTT1_USERNAME=user
+MQTT1_PASSWORD=pass
+EOF
+```
+
+3. Build and run:
+```bash
+docker build -t meshcoretomqtt:latest .
+docker run -d --name mctomqtt \
+  -v ~/mctomqtt-config/.env.local:/opt/.env.local \
+  --device=/dev/ttyACM0 \
+  --restart unless-stopped \
+  meshcoretomqtt:latest
+```
+
+4. View logs:
+```bash
+docker logs -f mctomqtt
+```
 
 ## Privacy
 MeshCore does not currently have any privacy controls baked into the protocol ([#435](https://github.com/ripplebiz/MeshCore/issues/435)). To compensate for this, the decoding logic will not publish the decoded payload of an advert for any node that does not have a `^` character at the end of its name. Downstream consumers of this data should ignore any packets that include a "sender" or "receiver" that it has not seen a recent advert for.
