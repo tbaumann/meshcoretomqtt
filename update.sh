@@ -89,8 +89,8 @@ load_update_source() {
     done
     
     # Set defaults if not found
-    UPDATE_REPO="${UPDATE_REPO:-michaelhart/meshcoretomqtt}"
-    UPDATE_BRANCH="${UPDATE_BRANCH:-main-with-upstream}"
+    UPDATE_REPO="${UPDATE_REPO:-Cisien/meshcoretomqtt}"
+    UPDATE_BRANCH="${UPDATE_BRANCH:-main}"
     
     echo "$UPDATE_REPO|$UPDATE_BRANCH"
 }
@@ -277,18 +277,45 @@ main() {
         print_header "Restarting Service"
         start_service "$SYSTEM_TYPE" "$SERVICE_WAS_RUNNING"
         
+        print_info "Waiting for service to start..."
+        sleep 3
+        
+        # Check service health
+        print_info "Checking service health..."
         sleep 2
         
-        # Show status
         case "$SYSTEM_TYPE" in
             systemd)
-                sudo systemctl status mctomqtt.service --no-pager || true
+                if sudo systemctl is-active --quiet mctomqtt.service; then
+                    # Check logs for successful MQTT connection
+                    if sudo journalctl -u mctomqtt.service --since "10 seconds ago" | grep -q "Connected to.*MQTT broker"; then
+                        print_success "Service restarted and connected to MQTT successfully"
+                        echo ""
+                        print_info "Recent logs:"
+                        sudo journalctl -u mctomqtt.service -n 10 --no-pager
+                    else
+                        print_warning "Service restarted but may not be connected to MQTT yet"
+                        echo ""
+                        print_info "Recent logs:"
+                        sudo journalctl -u mctomqtt.service -n 15 --no-pager
+                        echo ""
+                        print_warning "Check logs with: sudo journalctl -u mctomqtt -f"
+                    fi
+                else
+                    print_error "Service failed to start after update"
+                    echo ""
+                    sudo systemctl status mctomqtt.service --no-pager || true
+                fi
                 ;;
             launchd)
+                sleep 2
                 if launchctl list | grep -q com.meshcore.mctomqtt; then
-                    print_success "Service is running"
+                    print_success "Service restarted successfully"
+                    echo ""
+                    print_info "Check logs with: tail -f ~/Library/Logs/mctomqtt.log"
                 else
-                    print_warning "Service may not be running - check logs"
+                    print_error "Service may not be running after update"
+                    print_warning "Check logs with: tail -f ~/Library/Logs/mctomqtt.log"
                 fi
                 ;;
         esac
