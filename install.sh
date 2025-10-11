@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_VERSION="1.0.0"
-DEFAULT_REPO="michaelhart/meshcoretomqtt"
+DEFAULT_REPO="Cisien/meshcoretomqtt"
 DEFAULT_BRANCH="main"
 
 # Parse command line arguments
@@ -66,6 +66,112 @@ print_info() {
     echo -e "${BLUE}ℹ${NC} $1"
 }
 
+# Detect available serial devices
+detect_serial_devices() {
+    local devices=()
+    
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS: Use /dev/cu.* devices (callout devices, preferred over tty.*)
+        # Look for common USB serial adapters
+        while IFS= read -r device; do
+            devices+=("$device")
+        done < <(ls /dev/cu.usb* /dev/cu.wchusbserial* /dev/cu.SLAB_USBtoUART* 2>/dev/null | sort)
+    else
+        # Linux: Prefer /dev/serial/by-id/ for persistent naming
+        if [ -d /dev/serial/by-id ]; then
+            while IFS= read -r device; do
+                devices+=("$device")
+            done < <(ls -1 /dev/serial/by-id/ 2>/dev/null | sed 's|^|/dev/serial/by-id/|')
+        fi
+        
+        # Also check /dev/ttyACM* and /dev/ttyUSB* as fallback
+        while IFS= read -r device; do
+            # Only add if not already in list via by-id
+            local already_added=false
+            for existing in "${devices[@]}"; do
+                if [ "$(readlink -f "$existing" 2>/dev/null)" = "$device" ]; then
+                    already_added=true
+                    break
+                fi
+            done
+            if [ "$already_added" = false ]; then
+                devices+=("$device")
+            fi
+        done < <(ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | sort)
+    fi
+    
+    printf '%s\n' "${devices[@]}"
+}
+
+# Interactive device selection
+# Sets SELECTED_SERIAL_DEVICE variable
+select_serial_device() {
+    local devices=()
+    mapfile -t devices < <(detect_serial_devices)
+    
+    echo ""
+    print_header "Serial Device Selection"
+    echo ""
+    
+    if [ ${#devices[@]} -eq 0 ]; then
+        print_warning "No serial devices detected"
+        echo ""
+        echo "  1) Enter path manually"
+        echo ""
+        local choice=$(prompt_input "Select option [1]" "1")
+        SELECTED_SERIAL_DEVICE=$(prompt_input "Enter serial device path" "/dev/ttyACM0")
+        return
+    fi
+    
+    if [ ${#devices[@]} -eq 1 ]; then
+        print_info "Found 1 serial device:"
+    else
+        print_info "Found ${#devices[@]} serial devices:"
+    fi
+    echo ""
+    
+    local i=1
+    for device in "${devices[@]}"; do
+        # Try to get device info
+        local info=""
+        if [ "$(uname)" = "Darwin" ]; then
+            # macOS: device name is usually descriptive
+            info="$device"
+        else
+            # Linux: show both by-id path and resolved device
+            if [[ "$device" == /dev/serial/by-id/* ]]; then
+                local resolved=$(readlink -f "$device" 2>/dev/null)
+                info="$device -> $resolved"
+            else
+                info="$device"
+            fi
+        fi
+        echo "  $i) $info"
+        ((i++))
+    done
+    
+    echo "  $i) Enter path manually"
+    echo ""
+    
+    while true; do
+        local choice=$(prompt_input "Select device [1-$i]" "1")
+        
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le $i ]; then
+            if [ "$choice" -eq $i ]; then
+                # Manual entry
+                SELECTED_SERIAL_DEVICE=$(prompt_input "Enter serial device path" "/dev/ttyACM0")
+                return
+            else
+                # Selected from list
+                SELECTED_SERIAL_DEVICE="${devices[$((choice-1))]}"
+                return
+            fi
+        else
+            print_error "Invalid selection. Please enter a number between 1 and $i"
+        fi
+    done
+}
+
 prompt_yes_no() {
     local prompt="$1"
     local default="${2:-n}"
@@ -108,24 +214,27 @@ configure_mqtt_brokers() {
     
     # Ensure .env.local exists with update source info
     if [ ! -f "$ENV_LOCAL" ]; then
+        # Interactive device selection
+        select_serial_device
+        
         cat > "$ENV_LOCAL" << EOF
 # MeshCore to MQTT Configuration
 # This file contains your local overrides to the defaults in .env
 
 # Update source (configured by installer)
-UPDATE_REPO=$REPO
-UPDATE_BRANCH=$BRANCH
+MCTOMQTT_UPDATE_REPO=$REPO
+MCTOMQTT_UPDATE_BRANCH=$BRANCH
 
 # Serial Configuration
-SERIAL_PORTS=/dev/ttyACM0
+MCTOMQTT_SERIAL_PORTS=$SELECTED_SERIAL_DEVICE
 
 # Location Code
-IATA=XXX
+MCTOMQTT_IATA=XXX
 EOF
     fi
     
     # Get IATA from existing config
-    IATA=$(grep "^IATA=" "$ENV_LOCAL" 2>/dev/null | cut -d'=' -f2)
+    IATA=$(grep "^MCTOMQTT_IATA=" "$ENV_LOCAL" 2>/dev/null | cut -d'=' -f2)
     
     # Always prompt for IATA if it's XXX or empty
     if [ -z "$IATA" ] || [ "$IATA" = "XXX" ]; then
@@ -151,7 +260,7 @@ EOF
         done
         
         # Update IATA in config
-        sed -i.bak "s/^IATA=.*/IATA=$IATA/" "$ENV_LOCAL"
+        sed -i.bak "s/^MCTOMQTT_IATA=.*/MCTOMQTT_IATA=$IATA/" "$ENV_LOCAL"
         rm -f "$ENV_LOCAL.bak"
         echo ""
         print_success "IATA code set to: $IATA"
@@ -172,13 +281,13 @@ EOF
             cat >> "$ENV_LOCAL" << EOF
 
 # MQTT Broker 1 - LetsMesh.net Packet Analyzer
-MQTT1_ENABLED=true
-MQTT1_SERVER=mqtt-us-v1.letsmesh.net
-MQTT1_PORT=443
-MQTT1_TRANSPORT=websockets
-MQTT1_USE_TLS=true
-MQTT1_USE_AUTH_TOKEN=true
-MQTT1_TOKEN_AUDIENCE=mqtt-us-v1.letsmesh.net
+MCTOMQTT_MQTT1_ENABLED=true
+MCTOMQTT_MQTT1_SERVER=mqtt-us-v1.letsmesh.net
+MCTOMQTT_MQTT1_PORT=443
+MCTOMQTT_MQTT1_TRANSPORT=websockets
+MCTOMQTT_MQTT1_USE_TLS=true
+MCTOMQTT_MQTT1_USE_AUTH_TOKEN=true
+MCTOMQTT_MQTT1_TOKEN_AUDIENCE=mqtt-us-v1.letsmesh.net
 EOF
             print_success "LetsMesh Packet Analyzer enabled"
             
@@ -217,7 +326,7 @@ EOF
 configure_additional_brokers() {
     # Find next available broker number
     NEXT_BROKER=2
-    while grep -q "^MQTT${NEXT_BROKER}_ENABLED=" "$INSTALL_DIR/.env.local" 2>/dev/null; do
+    while grep -q "^MCTOMQTT_MQTT${NEXT_BROKER}_ENABLED=" "$INSTALL_DIR/.env.local" 2>/dev/null; do
         NEXT_BROKER=$((NEXT_BROKER + 1))
     done
     
@@ -245,23 +354,23 @@ configure_custom_broker() {
     
     echo "" >> "$ENV_LOCAL"
     echo "# MQTT Broker $BROKER_NUM" >> "$ENV_LOCAL"
-    echo "MQTT${BROKER_NUM}_ENABLED=true" >> "$ENV_LOCAL"
-    echo "MQTT${BROKER_NUM}_SERVER=$SERVER" >> "$ENV_LOCAL"
+    echo "MCTOMQTT_MQTT${BROKER_NUM}_ENABLED=true" >> "$ENV_LOCAL"
+    echo "MCTOMQTT_MQTT${BROKER_NUM}_SERVER=$SERVER" >> "$ENV_LOCAL"
     
     PORT=$(prompt_input "Port" "1883")
-    echo "MQTT${BROKER_NUM}_PORT=$PORT" >> "$ENV_LOCAL"
+    echo "MCTOMQTT_MQTT${BROKER_NUM}_PORT=$PORT" >> "$ENV_LOCAL"
     
     # Transport
     if prompt_yes_no "Use WebSockets transport?" "n"; then
-        echo "MQTT${BROKER_NUM}_TRANSPORT=websockets" >> "$ENV_LOCAL"
+        echo "MCTOMQTT_MQTT${BROKER_NUM}_TRANSPORT=websockets" >> "$ENV_LOCAL"
     fi
     
     # TLS
     if prompt_yes_no "Use TLS/SSL encryption?" "n"; then
-        echo "MQTT${BROKER_NUM}_USE_TLS=true" >> "$ENV_LOCAL"
+        echo "MCTOMQTT_MQTT${BROKER_NUM}_USE_TLS=true" >> "$ENV_LOCAL"
         
         if ! prompt_yes_no "Verify TLS certificates?" "y"; then
-            echo "MQTT${BROKER_NUM}_TLS_VERIFY=false" >> "$ENV_LOCAL"
+            echo "MCTOMQTT_MQTT${BROKER_NUM}_TLS_VERIFY=false" >> "$ENV_LOCAL"
         fi
     fi
     
@@ -278,10 +387,10 @@ configure_custom_broker() {
             print_error "meshcore-decoder not available - using username/password instead"
             AUTH_TYPE=1
         else
-            echo "MQTT${BROKER_NUM}_USE_AUTH_TOKEN=true" >> "$ENV_LOCAL"
+            echo "MCTOMQTT_MQTT${BROKER_NUM}_USE_AUTH_TOKEN=true" >> "$ENV_LOCAL"
             TOKEN_AUDIENCE=$(prompt_input "Token audience (optional)" "")
             if [ -n "$TOKEN_AUDIENCE" ]; then
-                echo "MQTT${BROKER_NUM}_TOKEN_AUDIENCE=$TOKEN_AUDIENCE" >> "$ENV_LOCAL"
+                echo "MCTOMQTT_MQTT${BROKER_NUM}_TOKEN_AUDIENCE=$TOKEN_AUDIENCE" >> "$ENV_LOCAL"
             fi
         fi
     fi
@@ -289,10 +398,10 @@ configure_custom_broker() {
     if [ "$AUTH_TYPE" = "1" ]; then
         USERNAME=$(prompt_input "Username" "")
         if [ -n "$USERNAME" ]; then
-            echo "MQTT${BROKER_NUM}_USERNAME=$USERNAME" >> "$ENV_LOCAL"
+            echo "MCTOMQTT_MQTT${BROKER_NUM}_USERNAME=$USERNAME" >> "$ENV_LOCAL"
             PASSWORD=$(prompt_input "Password" "")
             if [ -n "$PASSWORD" ]; then
-                echo "MQTT${BROKER_NUM}_PASSWORD=$PASSWORD" >> "$ENV_LOCAL"
+                echo "MCTOMQTT_MQTT${BROKER_NUM}_PASSWORD=$PASSWORD" >> "$ENV_LOCAL"
             fi
         fi
     fi
@@ -300,8 +409,116 @@ configure_custom_broker() {
     print_success "Broker $BROKER_NUM configured"
 }
 
+# Try to migrate old config.ini to .env.local
+migrate_config_ini() {
+    local config_ini="$INSTALL_DIR/config.ini"
+    local env_local="$INSTALL_DIR/.env.local"
+    
+    if [ ! -f "$config_ini" ]; then
+        return 0  # No config.ini, nothing to migrate
+    fi
+    
+    if [ -f "$env_local" ]; then
+        # .env.local already exists, ask user
+        echo ""
+        print_warning "Found both config.ini and .env.local"
+        if ! prompt_yes_no "Attempt to migrate settings from config.ini to .env.local?" "n"; then
+            return 0
+        fi
+    fi
+    
+    print_info "Attempting to migrate config.ini to .env.local format..."
+    
+    # Create backup
+    cp "$config_ini" "$config_ini.backup-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+    
+    # Try to extract values (simple grep-based parsing)
+    local serial_ports=$(grep -A5 "^\[serial\]" "$config_ini" | grep "^ports" | cut -d'=' -f2- | tr -d ' ')
+    local iata=$(grep -A10 "^\[topics\]" "$config_ini" | grep "^status.*meshcore/" | sed -E 's/.*meshcore\/([A-Z]{3})\/.*/\1/' | head -1)
+    
+    # MQTT1 settings
+    local mqtt1_server=$(grep -A20 "^\[mqtt\]" "$config_ini" | grep "^server" | head -1 | cut -d'=' -f2- | tr -d ' ')
+    local mqtt1_port=$(grep -A20 "^\[mqtt\]" "$config_ini" | grep "^port" | head -1 | cut -d'=' -f2- | tr -d ' ')
+    local mqtt1_username=$(grep -A20 "^\[mqtt\]" "$config_ini" | grep "^username" | head -1 | cut -d'=' -f2- | tr -d ' ')
+    local mqtt1_password=$(grep -A20 "^\[mqtt\]" "$config_ini" | grep "^password" | head -1 | cut -d'=' -f2- | tr -d ' ')
+    local mqtt1_use_auth=$(grep -A20 "^\[mqtt\]" "$config_ini" | grep "^use_auth_token" | head -1 | cut -d'=' -f2- | tr -d ' ')
+    local mqtt1_transport=$(grep -A20 "^\[mqtt\]" "$config_ini" | grep "^transport" | head -1 | cut -d'=' -f2- | tr -d ' ')
+    
+    # Check if we got anything useful
+    if [ -z "$serial_ports" ] && [ -z "$mqtt1_server" ]; then
+        print_error "Could not extract settings from config.ini"
+        if prompt_yes_no "Continue with manual configuration?" "y"; then
+            return 0
+        else
+            exit 1
+        fi
+    fi
+    
+    # Create .env.local with migrated settings
+    cat > "$env_local" << EOF
+# MeshCore to MQTT Configuration
+# Migrated from config.ini on $(date)
+
+# Serial Configuration
+MCTOMQTT_SERIAL_PORTS=${serial_ports:-/dev/ttyACM0}
+
+# Location Code
+MCTOMQTT_IATA=${iata:-XXX}
+EOF
+    
+    if [ -n "$mqtt1_server" ]; then
+        cat >> "$env_local" << EOF
+
+# MQTT Broker 1
+MCTOMQTT_MQTT1_ENABLED=true
+MCTOMQTT_MQTT1_SERVER=$mqtt1_server
+EOF
+        
+        [ -n "$mqtt1_port" ] && echo "MCTOMQTT_MQTT1_PORT=$mqtt1_port" >> "$env_local"
+        [ -n "$mqtt1_transport" ] && echo "MCTOMQTT_MQTT1_TRANSPORT=$mqtt1_transport" >> "$env_local"
+        
+        if [ "$mqtt1_use_auth" = "true" ]; then
+            cat >> "$env_local" << EOF
+MCTOMQTT_MQTT1_USE_AUTH_TOKEN=true
+MCTOMQTT_MQTT1_TOKEN_AUDIENCE=$mqtt1_server
+EOF
+        elif [ -n "$mqtt1_username" ]; then
+            cat >> "$env_local" << EOF
+MCTOMQTT_MQTT1_USERNAME=$mqtt1_username
+MCTOMQTT_MQTT1_PASSWORD=$mqtt1_password
+EOF
+        fi
+    fi
+    
+    echo ""
+    print_success "Migration complete! Review the generated .env.local:"
+    echo ""
+    cat "$env_local"
+    echo ""
+    
+    if prompt_yes_no "Does this look correct?" "y"; then
+        print_success "Using migrated configuration"
+        if prompt_yes_no "Archive old config.ini?" "y"; then
+            mv "$config_ini" "$config_ini.archived-$(date +%Y%m%d-%H%M%S)"
+            print_success "config.ini archived"
+        fi
+        return 0
+    else
+        print_warning "Migration didn't work as expected"
+        rm -f "$env_local"
+        if prompt_yes_no "Continue with new configuration setup?" "y"; then
+            return 0
+        else
+            exit 1
+        fi
+    fi
+}
+
 # Check for old installations
 check_old_installation() {
+    # Try to migrate config.ini if it exists
+    migrate_config_ini
+    
     # Only check for old systemd service - simple and non-blocking
     if [ -f /etc/systemd/system/mctomqtt.service ]; then
         local working_dir=$(grep "WorkingDirectory=" /etc/systemd/system/mctomqtt.service 2>/dev/null | cut -d'=' -f2)
@@ -521,7 +738,7 @@ main() {
                 echo ""
                 
                 # Try to extract existing IATA from config
-                EXISTING_IATA=$(grep "^IATA=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
+                EXISTING_IATA=$(grep "^MCTOMQTT_IATA=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
                 
                 IATA=""
                 while [ -z "$IATA" ] || [ "$IATA" = "XXX" ]; do
@@ -545,19 +762,19 @@ main() {
                 done
                 
                 # Update IATA in config
-                if grep -q "^IATA=" "$INSTALL_DIR/.env.local"; then
-                    sed -i.bak "s/^IATA=.*/IATA=$IATA/" "$INSTALL_DIR/.env.local"
+                if grep -q "^MCTOMQTT_IATA=" "$INSTALL_DIR/.env.local"; then
+                    sed -i.bak "s/^MCTOMQTT_IATA=.*/MCTOMQTT_IATA=$IATA/" "$INSTALL_DIR/.env.local"
                     rm -f "$INSTALL_DIR/.env.local.bak"
                 else
-                    echo "IATA=$IATA" >> "$INSTALL_DIR/.env.local"
+                    echo "MCTOMQTT_IATA=$IATA" >> "$INSTALL_DIR/.env.local"
                 fi
                 echo ""
                 print_success "IATA code set to: $IATA"
                 echo ""
                 
                 # Check if MQTT1 is already configured and offer additional brokers
-                if grep -q "^MQTT1_ENABLED=true" "$INSTALL_DIR/.env.local" 2>/dev/null; then
-                    MQTT1_SERVER=$(grep "^MQTT1_SERVER=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
+                if grep -q "^MCTOMQTT_MQTT1_ENABLED=true" "$INSTALL_DIR/.env.local" 2>/dev/null; then
+                    MQTT1_SERVER=$(grep "^MCTOMQTT_MQTT1_SERVER=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
                     echo ""
                     print_success "MQTT Broker 1 already configured: $MQTT1_SERVER"
                     
@@ -686,7 +903,8 @@ install_systemd_service() {
     cat > "$service_file" << EOF
 [Unit]
 Description=MeshCore to MQTT Relay
-After=network.target
+After=time-sync.target network.target
+Wants=time-sync.target
 
 [Service]
 User=$current_user

@@ -93,23 +93,23 @@ class MeshCoreBridge:
         self.mqtt_clients = []
         self.mqtt_connected = False
         self.should_exit = False
-        self.global_iata = os.getenv('IATA', 'XXX')
+        self.global_iata = os.getenv('MCTOMQTT_IATA', 'XXX')
         
         logger.info("Configuration loaded from environment variables")
     
     def get_env(self, key, fallback=''):
-        """Get environment variable with fallback"""
-        return os.getenv(key, fallback)
+        """Get environment variable with fallback (all vars are MCTOMQTT_ prefixed)"""
+        return os.getenv(f"MCTOMQTT_{key}", fallback)
     
     def get_env_bool(self, key, fallback=False):
-        """Get boolean environment variable"""
-        value = os.getenv(key, str(fallback)).lower()
+        """Get boolean environment variable, checking MCTOMQTT_ prefix first"""
+        value = self.get_env(key, str(fallback)).lower()
         return value in ('true', '1', 'yes', 'on')
     
     def get_env_int(self, key, fallback=0):
-        """Get integer environment variable"""
+        """Get integer environment variable, checking MCTOMQTT_ prefix first"""
         try:
-            return int(os.getenv(key, str(fallback)))
+            return int(self.get_env(key, str(fallback)))
         except ValueError:
             return fallback
     
@@ -246,8 +246,6 @@ class MeshCoreBridge:
 
         sleep(1.0)
         response = self.ser.read_all().decode(errors='replace')
-        logger.debug(f"Raw response: {repr(response)}")
-
         if "-> >" in response:
             priv_key = response.split("-> >")[1].strip()
             if '\n' in priv_key:
@@ -318,8 +316,6 @@ class MeshCoreBridge:
             "timestamp": datetime.now().isoformat(),
             "origin": self.repeater_name,
             "origin_id": self.repeater_pub_key,
-            "repeater": self.repeater_name,
-            "repeater_id": self.repeater_pub_key,
             "radio": self.radio_info if self.radio_info else "unknown"
         }
         status_topic = self.get_topic("status", broker_num)

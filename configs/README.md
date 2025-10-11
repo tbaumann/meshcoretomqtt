@@ -7,8 +7,8 @@ This directory contains pre-configured templates for various regions and mesh ne
 Use the `--config` flag with the installer to use a regional configuration:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/michaelhart/meshcoretomqtt/main-with-upstream/install.sh | \
-  bash -s -- --config https://raw.githubusercontent.com/michaelhart/meshcoretomqtt/main-with-upstream/configs/.env.pugetmesh
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | \
+  bash -s -- --config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/configs/.env.pugetmesh
 ```
 
 ## Available Configurations
@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/michaelhart/meshcoretomqtt/main-wit
 Pre-configured for the Puget Sound region with connection to the public observer network.
 
 ```bash
---config https://raw.githubusercontent.com/michaelhart/meshcoretomqtt/main-with-upstream/configs/.env.pugetmesh
+--config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/configs/.env.pugetmesh
 ```
 
 ### SoCalMesh (Los Angeles, CA)
@@ -30,7 +30,7 @@ Pre-configured for the Puget Sound region with connection to the public observer
 Pre-configured for the Southern California region with connection to the public observer network.
 
 ```bash
---config https://raw.githubusercontent.com/michaelhart/meshcoretomqtt/main-with-upstream/configs/.env.socalmesh
+--config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/configs/.env.socalmesh
 ```
 
 ## Creating Your Own Configuration
@@ -48,7 +48,7 @@ You can host your own configuration file anywhere (GitHub Gist, your repo, etc.)
 # Create a Gist with your config
 # Get the raw URL, then:
 
-curl -fsSL https://raw.githubusercontent.com/michaelhart/meshcoretomqtt/main-with-upstream/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | \
   bash -s -- --config https://gist.githubusercontent.com/username/abc123/raw/my-config.env
 ```
 

@@ -9,7 +9,7 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
 
 ### One-Line Installation (Recommended)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | bash
 ```
 
 ### Regional Pre-Configuration
@@ -17,8 +17,8 @@ Use a regional configuration template for quick setup:
 
 ```bash
 # PugetMesh (Seattle, WA)
-curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/install.sh | \
-  bash -s -- --config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/configs/.env.pugetmesh
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | \
+  bash -s -- --config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/configs/.env.pugetmesh
 ```
 
 See [configs/README.md](configs/README.md) for more regional configurations.
@@ -27,7 +27,7 @@ See [configs/README.md](configs/README.md) for more regional configurations.
 Use your own configuration (Gist, repo, etc.):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | \
   bash -s -- --config https://gist.githubusercontent.com/username/abc123/raw/my-config.env
 ```
 
@@ -274,7 +274,7 @@ Select "Reconfigure" when prompted, or edit `.env.local` directly.
 ## Uninstallation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main-with-upstream/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/uninstall.sh | bash
 ```
 
 Or locally:
