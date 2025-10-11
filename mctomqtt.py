@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import os
 import json
 import serial
 import argparse
@@ -7,10 +8,9 @@ import re
 import time
 import calendar
 import logging
-import configparser
 from datetime import datetime
 from time import sleep
-from enums import AdvertFlags, PayloadType, PayloadVersion, RouteType, DeviceRole
+from auth_token import create_auth_token, read_private_key_file
 
 try:
     import paho.mqtt.client as mqtt
@@ -18,6 +18,52 @@ except ImportError:
     print("Error: paho-mqtt not installed. Install with:")
     print("pip install paho-mqtt")
     sys.exit(1)
+
+def load_env_files():
+    """Load environment variables from .env and .env.local files"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_file = os.path.join(script_dir, '.env')
+    env_local_file = os.path.join(script_dir, '.env.local')
+    
+    def parse_env_file(filepath):
+        """Parse a .env file and return a dictionary"""
+        env_vars = {}
+        if not os.path.exists(filepath):
+            return env_vars
+        
+        with open(filepath, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+                # Parse KEY=VALUE
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # Remove quotes if present
+                    if value and value[0] in ('"', "'") and value[-1] == value[0]:
+                        value = value[1:-1]
+                    env_vars[key] = value
+        return env_vars
+    
+    # Load .env first (defaults)
+    env_vars = parse_env_file(env_file)
+    
+    # Load .env.local (overrides)
+    local_vars = parse_env_file(env_local_file)
+    env_vars.update(local_vars)
+    
+    # Set environment variables
+    for key, value in env_vars.items():
+        if key not in os.environ:
+            os.environ[key] = value
+    
+    return env_vars
+
+# Load environment configuration
+load_env_files()
 
 # Regex patterns for message parsing
 RAW_PATTERN = re.compile(r"(\d{2}:\d{2}:\d{2}) - (\d{1,2}/\d{1,2}/\d{4}) U RAW: (.*)")
@@ -35,38 +81,80 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MeshCoreBridge:
-    opted_in_ids = []
     last_raw: bytes = None
 
-    def __init__(self, config_file="config.ini", debug=False):
+    def __init__(self, debug=False):
         self.debug = debug
         self.repeater_name = None
         self.repeater_pub_key = None
+        self.repeater_priv_key = None
         self.radio_info = None
         self.ser = None
-        self.mqtt_client = None
+        self.mqtt_clients = []
         self.mqtt_connected = False
         self.should_exit = False
-
-        # Load configuration
-        self.config = configparser.ConfigParser()
+        self.global_iata = os.getenv('MCTOMQTT_IATA', 'XXX')
+        
+        logger.info("Configuration loaded from environment variables")
+    
+    def get_env(self, key, fallback=''):
+        """Get environment variable with fallback (all vars are MCTOMQTT_ prefixed)"""
+        return os.getenv(f"MCTOMQTT_{key}", fallback)
+    
+    def get_env_bool(self, key, fallback=False):
+        """Get boolean environment variable, checking MCTOMQTT_ prefix first"""
+        value = self.get_env(key, str(fallback)).lower()
+        return value in ('true', '1', 'yes', 'on')
+    
+    def get_env_int(self, key, fallback=0):
+        """Get integer environment variable, checking MCTOMQTT_ prefix first"""
         try:
-            self.config.read(config_file)
-            logger.info("Configuration loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load configuration: {str(e)}")
-            sys.exit(1)
+            return int(self.get_env(key, str(fallback)))
+        except ValueError:
+            return fallback
+    
+    def resolve_topic_template(self, template, broker_num=None):
+        """Resolve topic template with {IATA} and {PUBLIC_KEY} placeholders"""
+        if not template:
+            return template
+        
+        # Get IATA - broker-specific or global
+        iata = self.global_iata
+        if broker_num:
+            broker_iata = self.get_env(f'MQTT{broker_num}_IATA', '')
+            if broker_iata:
+                iata = broker_iata
+        
+        # Replace template variables
+        resolved = template.replace('{IATA}', iata)
+        resolved = resolved.replace('{PUBLIC_KEY}', self.repeater_pub_key if self.repeater_pub_key else 'UNKNOWN')
+        return resolved
+    
+    def get_topic(self, topic_type, broker_num=None):
+        """Get topic with template resolution, checking broker-specific override first"""
+        topic_type_upper = topic_type.upper()
+        
+        # Check broker-specific topic override
+        if broker_num:
+            broker_topic = self.get_env(f'MQTT{broker_num}_TOPIC_{topic_type_upper}', '')
+            if broker_topic:
+                return self.resolve_topic_template(broker_topic, broker_num)
+        
+        # Fall back to global topic
+        global_topic = self.get_env(f'TOPIC_{topic_type_upper}', '')
+        return self.resolve_topic_template(global_topic, broker_num)
 
     def sanitize_client_id(self, name):
         """Convert repeater name to valid MQTT client ID"""
-        client_id = self.config.get("mqtt", "client_id_prefix", fallback="meshcore_") + name.replace(" ", "_")
+        prefix = self.get_env("MQTT1_CLIENT_ID_PREFIX", "meshcore_")
+        client_id = prefix + name.replace(" ", "_")
         client_id = re.sub(r"[^a-zA-Z0-9_-]", "", client_id)
         return client_id[:23]
 
     def connect_serial(self):
-        ports = self.config.get("serial", "ports").split(",")
-        baud_rate = self.config.getint("serial", "baud_rate")
-        timeout = self.config.getint("serial", "timeout", fallback=2)
+        ports = self.get_env("SERIAL_PORTS", "/dev/ttyACM0").split(",")
+        baud_rate = self.get_env_int("SERIAL_BAUD_RATE", 115200)
+        timeout = self.get_env_int("SERIAL_TIMEOUT", 2)
 
         for port in ports:
             try:
@@ -79,6 +167,7 @@ class MeshCoreBridge:
                     timeout=timeout,
                     rtscts=False
                 )
+                self.ser.write(b"\r\n\r\n")
                 self.ser.flushInput()
                 self.ser.flushOutput()
                 logger.info(f"Connected to {port}")
@@ -146,6 +235,37 @@ class MeshCoreBridge:
         logger.error("Failed to get repeater pub key from response")
         return False
 
+    def get_repeater_privkey(self):
+        if not self.ser:
+            return False
+        
+        self.ser.flushInput()
+        self.ser.flushOutput()
+        self.ser.write(b"get prv.key\r\n")
+        logger.debug("Sent 'get prv.key' command")
+
+        sleep(1.0)
+        response = self.ser.read_all().decode(errors='replace')
+        if "-> >" in response:
+            priv_key = response.split("-> >")[1].strip()
+            if '\n' in priv_key:
+                priv_key = priv_key.split('\n')[0]
+
+            priv_key_clean = priv_key.replace(' ', '').replace('\r', '').replace('\n', '')
+            if len(priv_key_clean) == 128:
+                try:
+                    int(priv_key_clean, 16)  # Validate it's hex
+                    self.repeater_priv_key = priv_key_clean
+                    logger.info(f"Repeater priv key: {self.repeater_priv_key[:4]}... (truncated for security)")
+                    return True
+                except ValueError as e:
+                    logger.error(f"Response not valid hex: {priv_key_clean[:32]}... Error: {e}")
+            else:
+                logger.error(f"Response wrong length: {len(priv_key_clean)} (expected 128)")
+        
+        logger.error("Failed to get repeater priv key from response - command may not be supported by firmware")
+        return False
+
     def get_radio_info(self):
         """Query the repeater for radio information"""
         if not self.ser:
@@ -171,194 +291,205 @@ class MeshCoreBridge:
         return None
 
     def on_mqtt_connect(self, client, userdata, flags, rc, properties=None):
+        broker_name = userdata.get('name', 'unknown') if userdata else 'unknown'
+        broker_num = userdata.get('broker_num', None) if userdata else None
         if rc == 0:
             self.mqtt_connected = True
-            logger.info("Connected to MQTT broker")
+            logger.info(f"Connected to MQTT broker: {broker_name}")
             # Publish online status once on connection
-            self.publish_status("online")
+            self.publish_status("online", client, broker_num)
         else:
-            self.mqtt_connected = False
-            logger.error(f"MQTT connection failed with code {rc}")
+            logger.error(f"MQTT connection failed for {broker_name} with code {rc}")
 
     def on_mqtt_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
+        broker_name = userdata.get('name', 'unknown') if userdata else 'unknown'
+        logger.warning(f"Disconnected from MQTT broker {broker_name} (code: {reason_code})")
+        # Exit if ANY broker disconnects
         self.mqtt_connected = False
-        logger.warning(f"Disconnected from MQTT broker (code: {reason_code}; flags: {disconnect_flags}; userdata: {userdata}; properties: {properties})")
-        logger.warning("Exiting...")
+        logger.warning("MQTT broker disconnected. Exiting...")
         self.should_exit = True
 
-    def publish_status(self, status):
+    def publish_status(self, status, client=None, broker_num=None):
         """Publish status with additional information"""
         status_msg = {
             "status": status,
             "timestamp": datetime.now().isoformat(),
-            "repeater": self.repeater_name,
-            "repeater_id": self.repeater_pub_key,
-            "radio": self.radio_info if self.radio_info else "unknown"  # Use stored radio info
+            "origin": self.repeater_name,
+            "origin_id": self.repeater_pub_key,
+            "radio": self.radio_info if self.radio_info else "unknown"
         }
-        if self.safe_publish(self.config.get("topics", "status"), json.dumps(status_msg), retain=True):
-            logger.debug(f"Published status: {status}")
+        status_topic = self.get_topic("status", broker_num)
+        if client:
+            self.safe_publish(status_topic, json.dumps(status_msg), retain=True, client=client, broker_num=broker_num)
+        else:
+            self.safe_publish(status_topic, json.dumps(status_msg), retain=True)
+        logger.debug(f"Published status: {status}")
 
-    def safe_publish(self, topic, payload, retain=False):
+    def safe_publish(self, topic, payload, retain=False, client=None, broker_num=None):
+        """Publish to one or all MQTT brokers"""
         if not self.mqtt_connected:
             logger.warning(f"Not connected - skipping publish to {topic}")
             return False
 
-        try:
-            qos = self.config.getint("mqtt", "qos", fallback=1)  # Use QoS 1 for reliability
-            result = self.mqtt_client.publish(topic, payload, qos=qos, retain=retain)
-            if result.rc != mqtt.MQTT_ERR_SUCCESS:
-                logger.error(f"Publish failed to {topic}: {mqtt.error_string(result.rc)}")
-                return False
-            logger.debug(f"Published to {topic}: {payload}")
-            return True
-        except Exception as e:
-            logger.error(f"Publish error to {topic}: {str(e)}")
-            return False
+        success = False
+        
+        if client:
+            clients_to_publish = [info for info in self.mqtt_clients if info['client'] == client]
+        else:
+            clients_to_publish = self.mqtt_clients
+        
+        for mqtt_client_info in clients_to_publish:
+            broker_num = mqtt_client_info['broker_num']
+            try:
+                mqtt_client = mqtt_client_info['client']
+                qos = self.get_env_int(f"MQTT{broker_num}_QOS", 0)
+                if qos == 1:
+                    qos = 0  # force qos=1 to 0 because qos 1 can cause retry storms
+                
+                result = mqtt_client.publish(topic, payload, qos=qos, retain=retain)
+                if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.error(f"Publish failed to {topic} on MQTT{broker_num}: {mqtt.error_string(result.rc)}")
+                else:
+                    logger.debug(f"Published to {topic} on MQTT{broker_num}")
+                    success = True
+            except Exception as e:
+                logger.error(f"Publish error to {topic} on MQTT{broker_num}: {str(e)}")
+        
+        return success
 
-    def connect_mqtt(self):
+    def connect_mqtt_broker(self, broker_num):
+        """Connect to a single MQTT broker"""
         if not self.repeater_name:
             logger.error("Cannot connect to MQTT without repeater name")
-            return False
+            return None
 
-        client_id = self.sanitize_client_id(self.repeater_pub_key)
-        logger.info(f"Using client ID: {client_id}")
-        self.mqtt_client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2,
-            client_id=client_id,
-            clean_session=False
-        )
-        
-        self.mqtt_client.username_pw_set(
-            self.config.get("mqtt", "username"),
-            self.config.get("mqtt", "password")
-        )
-        
-        # Set Last Will and Testament
-        lwt_topic = self.config.get("topics", "status")
-        lwt_payload = json.dumps({
-            "status": "offline",
-            "timestamp": datetime.now().isoformat(),
-            "repeater": self.repeater_name,
-            "repeater_id": self.repeater_pub_key
-        })
-        lwt_qos = self.config.getint("mqtt", "qos", fallback=1)  # Use QoS 1 for reliability
-        lwt_retain = self.config.getboolean("mqtt", "retain", fallback=True)
-        
-        self.mqtt_client.will_set(
-            lwt_topic,
-            lwt_payload,
-            qos=lwt_qos,
-            retain=lwt_retain
-        )
-        
-        logger.debug(f"Set LWT for topic: {lwt_topic}, payload: {lwt_payload}, QoS: {lwt_qos}, retain: {lwt_retain}")
-        
-        # Set callbacks
-        self.mqtt_client.on_connect = self.on_mqtt_connect
-        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
-        
         # Connect to broker
         try:
-            self.mqtt_client.loop_stop()
-            self.mqtt_client.connect(
-                self.config.get("mqtt", "server"),
-                self.config.getint("mqtt", "port"),
-                keepalive=30  # Reduced keepalive for faster detection
-            )
-
-            self.mqtt_client.loop_start()  # Start the MQTT loop
-            logger.debug("MQTT loop started")
-            return True
-        except Exception as e:
-            logger.error(f"MQTT connection error: {str(e)}")
-            return False
-
-    def parse_advert(self, payload):
-        # advert header
-        pub_key = payload[0:32]
-        timestamp = int.from_bytes(payload[32:32+4], "little")
-        signature = payload[36:36+64]
-
-        # appdata
-        flags = AdvertFlags(payload[100:101][0])
-        
-        advert = {
-            "public_key": pub_key.hex(),
-            "advert_time": timestamp,
-            "signature": signature.hex(),
-        }
-
-        if AdvertFlags.IsCompanion in flags: 
-            advert.update({"mode": DeviceRole.Companion.name})
-        elif AdvertFlags.IsRepeater in flags:
-            advert.update({"mode": DeviceRole.Repeater.name})
-        elif AdvertFlags.IsRoomServer in flags:
-            advert.update({"mode": DeviceRole.RoomServer.name})
-
-        if AdvertFlags.HasLocation in flags:
-            lat = int.from_bytes(payload[101:105], 'little', signed=True)/1000000
-            lon = int.from_bytes(payload[105:109], 'little', signed=True)/1000000
-
-            advert.update({"lat": round(lat, 2), "lon": round(lon, 2)})
-        
-        if AdvertFlags.HasName in flags:
-            name_raw = payload[101:]
-            if AdvertFlags.HasLocation in flags:
-                name_raw = payload[109:]
-            name = name_raw.decode()
-            advert.update({"name": name})
-
-        return advert
-    
-    def decode_and_publish_message(self, raw_data):
-        logger.debug(f"raw_data to parse: {raw_data}")
-        byte_data = bytes.fromhex(raw_data)
-        try:
-            header = byte_data[0]
-
-            path_len = byte_data[1]
-            path = byte_data[2: path_len + 2].hex()
-            payload = byte_data[(path_len + 2):]
-            payload_version = PayloadVersion((header >> 6) & 0xC0)
-
-            if payload_version != PayloadVersion.Version1:
-                logger.warning(f"Encountered an unknown packet version. Version: {payload_version.value} RAW: {raw_data}")
+            if not self.get_env_bool(f"MQTT{broker_num}_ENABLED", False):
+                logger.debug(f"MQTT broker {broker_num} is disabled, skipping")
                 return None
 
-            route_type = RouteType(header & 0x03)
-            payload_type = PayloadType((header >> 2) & 0x3C)
-
-            path_values = []
-            i = 0
-            while i < len(path):
-                path_values.append(path[i:i+2])
-                i = i + 2
+            client_id = self.sanitize_client_id(self.repeater_pub_key)
+            if broker_num > 1:
+                client_id += f"_{broker_num}"
             
-            message = {
-                "payload_type": payload_type.name,
-                "payload_version": payload_version.name,
-                "route_type": route_type.name,
-                "path": path_values
-            }
-        
-            payload_value = {}
-            if payload_type is PayloadType.Advert:
-               payload_value = self.parse_advert(payload)
+            logger.info(f"Connecting to MQTT{broker_num} with client ID: {client_id}")
             
-            if payload_type is PayloadType.Advert:
-                key_prefix = payload_value["public_key"][:2]
-                if payload_value["name"].endswith("^"):
-                    message.update(payload_value)
-                elif key_prefix not in self.opted_in_ids:
-                    self.opted_in_ids.append(key_prefix)
+            transport = self.get_env(f"MQTT{broker_num}_TRANSPORT", "tcp")
+            
+            mqtt_client = mqtt.Client(
+                mqtt.CallbackAPIVersion.VERSION2,
+                client_id=client_id,
+                clean_session=False,
+                transport=transport
+            )
+            
+            mqtt_client.user_data_set({
+                'name': f"MQTT{broker_num}",
+                'broker_num': broker_num
+            })
+            
+            use_auth_token = self.get_env_bool(f"MQTT{broker_num}_USE_AUTH_TOKEN", False)
+            
+            if use_auth_token:
+                if not self.repeater_priv_key:
+                    logger.error(f"MQTT{broker_num}: Private key not available from device for auth token")
+                    return None
+                
+                try:
+                    username = f"v1_{self.repeater_pub_key.upper()}"
+                    audience = self.get_env(f"MQTT{broker_num}_TOKEN_AUDIENCE", "")
+                    claims = {}
+                    if audience:
+                        claims['aud'] = audience
+                        logger.info(f"MQTT{broker_num}: Using auth token authentication with device private key [aud: {audience}]")
+                    else:
+                        logger.info(f"MQTT{broker_num}: Using auth token authentication with device private key")
+                    
+                    password = create_auth_token(self.repeater_pub_key, self.repeater_priv_key, **claims)
+                    mqtt_client.username_pw_set(username, password)
+                except Exception as e:
+                    logger.error(f"MQTT{broker_num}: Failed to generate auth token: {e}")
+                    return None
             else:
-               message.update(payload_value)
-        except Exception:
+                username = self.get_env(f"MQTT{broker_num}_USERNAME", "")
+                password = self.get_env(f"MQTT{broker_num}_PASSWORD", "")
+                if username:
+                    mqtt_client.username_pw_set(username, password)
+            
+            lwt_topic = self.get_topic("status", broker_num)
+            lwt_payload = json.dumps({
+                "status": "offline",
+                "timestamp": datetime.now().isoformat(),
+                "repeater": self.repeater_name,
+                "repeater_id": self.repeater_pub_key
+            })
+            lwt_qos = self.get_env_int(f"MQTT{broker_num}_QOS", 0)
+            lwt_retain = self.get_env_bool(f"MQTT{broker_num}_RETAIN", True)
+            
+            mqtt_client.will_set(lwt_topic, lwt_payload, qos=lwt_qos, retain=lwt_retain)
+            logger.debug(f"MQTT{broker_num}: Set LWT")
+            
+            mqtt_client.on_connect = self.on_mqtt_connect
+            mqtt_client.on_disconnect = self.on_mqtt_disconnect
+            
+            server = self.get_env(f"MQTT{broker_num}_SERVER", "")
+            if not server:
+                logger.error(f"MQTT{broker_num}: Server not configured")
+                return None
+                
+            port = self.get_env_int(f"MQTT{broker_num}_PORT", 1883)
+            
+            use_tls = self.get_env_bool(f"MQTT{broker_num}_USE_TLS", False)
+            if use_tls:
+                import ssl
+                tls_verify = self.get_env_bool(f"MQTT{broker_num}_TLS_VERIFY", True)
+                
+                if tls_verify:
+                    mqtt_client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+                    mqtt_client.tls_insecure_set(False)
+                    logger.debug(f"MQTT{broker_num}: TLS/SSL enabled with certificate verification")
+                else:
+                    mqtt_client.tls_set(cert_reqs=ssl.CERT_NONE)
+                    mqtt_client.tls_insecure_set(True)
+                    logger.warning(f"MQTT{broker_num}: TLS certificate verification disabled (insecure)")
+            
+            if transport == "websockets":
+                mqtt_client.ws_set_options(
+                    path="/",
+                    headers=None
+                )
+                logger.debug(f"MQTT{broker_num}: WebSocket transport configured")
+            
+            keepalive = self.get_env_int(f"MQTT{broker_num}_KEEPALIVE", 60)
+            mqtt_client.connect(server, port, keepalive=keepalive)
+            mqtt_client.loop_start()
+            
+            logger.info(f"Connected to MQTT{broker_num} at {server}:{port} (transport={transport}, tls={use_tls})")
+            return {
+                'client': mqtt_client,
+                'broker_num': broker_num
+            }
+            
+        except Exception as e:
+            logger.error(f"MQTT connection error for MQTT{broker_num}: {str(e)}")
             return None
+
+    def connect_mqtt(self):
+        """Connect to all configured MQTT brokers"""
+        # Try to connect to MQTT1, MQTT2, MQTT3, MQTT4 (can expand if needed)
+        for broker_num in range(1, 5):
+            client_info = self.connect_mqtt_broker(broker_num)
+            if client_info:
+                self.mqtt_clients.append(client_info)
         
-        return message
-
-
+        if len(self.mqtt_clients) == 0:
+            logger.error("Failed to connect to any MQTT broker")
+            return False
+        
+        logger.info(f"Connected to {len(self.mqtt_clients)} MQTT broker(s)")
+        return True
+        
     def parse_and_publish(self, line):
         if not line:
             return
@@ -373,27 +504,19 @@ class MeshCoreBridge:
         if "U RAW:" in line:
             parts = line.split("U RAW:")
             if len(parts) > 1:
-                message.update({
-                    "type": "RAW",
-                    "data": parts[1].strip()
-                })
-                self.last_raw = message["data"]
-                self.safe_publish(self.config.get("topics", "raw"), json.dumps(message))
-
-                decoded_message = self.decode_and_publish_message(parts[1].strip())
-                if decoded_message is not None:
-                    self.safe_publish(self.config.get("topics", "decoded"), json.dumps(decoded_message))
-
-                return
+                self.last_raw = parts[1].strip()
 
         # Handle DEBUG messages
-        if line.startswith("DEBUG"):
-            message.update({
-                "type": "DEBUG",
-                "message": line
-            })
-            self.safe_publish(self.config.get("topics", "debug"), json.dumps(message))
-            return
+        if self.debug:
+            if line.startswith("DEBUG"):
+                message.update({
+                    "type": "DEBUG",
+                    "message": line
+                })
+                debug_topic = self.get_topic("debug")
+                if debug_topic:
+                    self.safe_publish(debug_topic, json.dumps(message))
+                return
 
         # Handle Packet messages (RX and TX)
         packet_match = PACKET_PATTERN.match(line)
@@ -426,7 +549,9 @@ class MeshCoreBridge:
                     payload["path"] = packet_match.group(14)
 
             message.update(payload)
-            self.safe_publish(self.config.get("topics", "packets"), json.dumps(message))
+            packets_topic = self.get_topic("packets")
+            if packets_topic:
+                self.safe_publish(packets_topic, json.dumps(message))
             return
 
     def run(self):
@@ -442,6 +567,9 @@ class MeshCoreBridge:
         if not self.get_repeater_pubkey():
             logger.error("Failed to get the repeater id (public key)")
             return
+        
+        if not self.get_repeater_privkey():
+            logger.warning("Failed to get repeater private key - auth token authentication will not be available")
         
         # Get radio info before connecting to MQTT
         self.radio_info = self.get_radio_info()
@@ -474,7 +602,11 @@ class MeshCoreBridge:
                 
         except KeyboardInterrupt:
             logger.info("\nExiting...")
-            self.mqtt_client.disconnect()
+            for mqtt_client_info in self.mqtt_clients:
+                try:
+                    mqtt_client_info['client'].disconnect()
+                except:
+                    pass
             self.ser.close()
 
 if __name__ == "__main__":
@@ -484,6 +616,6 @@ if __name__ == "__main__":
     
     if args.debug:
         logger.setLevel(logging.DEBUG)
-    
+
     bridge = MeshCoreBridge(debug=args.debug)
     bridge.run()

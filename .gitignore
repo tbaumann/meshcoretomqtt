@@ -1,3 +1,9 @@
 __pycache__/
 .venv/
 .vscode/
+.env.local
+.env.local.backup-*
+mctomqtt.service
+*.log
+output.log
+venv/
