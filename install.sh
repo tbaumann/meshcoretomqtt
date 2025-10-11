@@ -603,11 +603,15 @@ main() {
         cp "${LOCAL_INSTALL}/mctomqtt.py" "$INSTALL_DIR/"
         cp "${LOCAL_INSTALL}/auth_token.py" "$INSTALL_DIR/"
         cp "${LOCAL_INSTALL}/.env" "$INSTALL_DIR/"
+        cp "${LOCAL_INSTALL}/update.sh" "$INSTALL_DIR/"
+        cp "${LOCAL_INSTALL}/uninstall.sh" "$INSTALL_DIR/"
         if [ -f "${LOCAL_INSTALL}/.env.local" ]; then
             print_warning ".env.local found in source - copying as .env.local.example"
             cp "${LOCAL_INSTALL}/.env.local" "$INSTALL_DIR/.env.local.example"
         fi
         chmod +x "$INSTALL_DIR/mctomqtt.py"
+        chmod +x "$INSTALL_DIR/update.sh"
+        chmod +x "$INSTALL_DIR/uninstall.sh"
         print_success "Files copied from local directory"
     else
         # Download from GitHub
@@ -638,6 +642,18 @@ main() {
             exit 1
         fi
         
+        print_info "Downloading update.sh..."
+        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/update.sh" -o "$TMP_DIR/update.sh"; then
+            print_error "Failed to download update.sh"
+            exit 1
+        fi
+        
+        print_info "Downloading uninstall.sh..."
+        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/uninstall.sh" -o "$TMP_DIR/uninstall.sh"; then
+            print_error "Failed to download uninstall.sh"
+            exit 1
+        fi
+        
         # Verify Python syntax before installing
         print_info "Verifying Python syntax..."
         if ! python3 -m py_compile "$TMP_DIR/mctomqtt.py" 2>/dev/null; then
@@ -650,8 +666,12 @@ main() {
         mv "$TMP_DIR/mctomqtt.py" "$INSTALL_DIR/mctomqtt.py"
         mv "$TMP_DIR/auth_token.py" "$INSTALL_DIR/auth_token.py"
         mv "$TMP_DIR/.env" "$INSTALL_DIR/.env"
+        mv "$TMP_DIR/update.sh" "$INSTALL_DIR/update.sh"
+        mv "$TMP_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
         
         chmod +x "$INSTALL_DIR/mctomqtt.py"
+        chmod +x "$INSTALL_DIR/update.sh"
+        chmod +x "$INSTALL_DIR/uninstall.sh"
         print_success "Files downloaded and verified"
     fi
     
