@@ -28,18 +28,16 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | b
     && . "$NVM_DIR/nvm.sh" \
     && nvm install $NODE_VERSION \
     && nvm use $NODE_VERSION \
-    && npm install -g @michaelhart/meshcore-decoder
-
-# Add node to PATH
-ENV NODE_PATH=$NVM_DIR/versions/node/$(ls $NVM_DIR/versions/node | head -1)/lib/node_modules
-ENV PATH=$NVM_DIR/versions/node/$(ls $NVM_DIR/versions/node | head -1)/bin:$PATH
+    && npm install -g @michaelhart/meshcore-decoder \
+    && ln -s "$NVM_DIR/versions/node/$(ls $NVM_DIR/versions/node | head -1)/bin/"* /usr/local/bin/
 
 # Copy application files
 COPY ./mctomqtt.py /opt/
 COPY ./auth_token.py /opt/
 COPY ./.env /opt/
 
-# .env.local should be mounted as a volume with your configuration
-# Example: -v ./config/.env.local:/opt/.env.local
+# Note: .env.local should be mounted as a volume with your configuration
+# The .env file contains defaults, .env.local contains your overrides
+# Example: -v /path/to/.env.local:/opt/.env.local
 
 CMD ["/usr/bin/python3", "/opt/mctomqtt.py"]

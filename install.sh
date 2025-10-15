@@ -4,12 +4,13 @@
 # ============================================================================
 set -e
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.0.1"
 DEFAULT_REPO="Cisien/meshcoretomqtt"
 DEFAULT_BRANCH="main"
 
 # Parse command line arguments
 CONFIG_URL=""
+UPDATE_MODE=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --config)
@@ -24,9 +25,13 @@ while [[ $# -gt 0 ]]; do
             DEFAULT_BRANCH="$2"
             shift 2
             ;;
+        --update)
+            UPDATE_MODE=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--config URL] [--repo owner/repo] [--branch branch-name]"
+            echo "Usage: $0 [--config URL] [--repo owner/repo] [--branch branch-name] [--update]"
             exit 1
             ;;
     esac
@@ -64,6 +69,90 @@ print_warning() {
 
 print_info() {
     echo -e "${BLUE}ℹ${NC} $1"
+}
+
+# Download file with retry
+download_file() {
+    local url="$1"
+    local dest="$2"
+    local name="$3"
+    print_info "Downloading $name..."
+    curl -fsSL --retry 3 --retry-delay 2 "$url" -o "$dest" || { print_error "Failed to download $name"; return 1; }
+}
+
+# Check service/container health after start
+check_service_health() {
+    local service_type="$1"
+    print_info "Waiting for service to start..."
+    sleep 5
+    
+    case "$service_type" in
+        docker)
+            DOCKER=$(docker_cmd) || DOCKER="docker"
+            if $DOCKER ps | grep -q mctomqtt && $DOCKER logs mctomqtt 2>&1 | tail -20 | grep -qE "(Re)?connected to.*MQTT broker"; then
+                print_success "Container started and connected successfully"
+            else
+                print_warning "Container started but may not be connected yet"
+            fi
+            echo ""
+            print_info "Recent logs:"
+            $DOCKER logs mctomqtt 2>&1 | tail -10
+            ;;
+        systemd)
+            if sudo systemctl is-active --quiet mctomqtt.service && sudo journalctl -u mctomqtt.service --since "10 seconds ago" | grep -qE "(Re)?connected to.*MQTT broker"; then
+                print_success "Service started and connected successfully"
+            else
+                print_warning "Service started but may not be connected yet"
+            fi
+            echo ""
+            print_info "Recent logs:"
+            sudo journalctl -u mctomqtt.service -n 10 --no-pager
+            ;;
+        launchd)
+            if launchctl list | grep -q com.meshcore.mctomqtt; then
+                print_success "Service started successfully"
+            else
+                print_error "Service may not be running"
+            fi
+            echo ""
+            print_info "Recent logs:"
+            tail -10 ~/Library/Logs/mctomqtt.log 2>/dev/null || print_info "No logs available yet"
+            ;;
+    esac
+}
+
+# Detect if docker needs sudo
+docker_cmd() {
+    if docker info &> /dev/null 2>&1; then
+        echo "docker"
+    elif sudo docker info &> /dev/null 2>&1; then
+        echo "sudo docker"
+    else
+        return 1
+    fi
+}
+
+# Prompt and validate IATA code
+prompt_iata() {
+    local existing="$1"
+    local iata=""
+    
+    echo "" >&2
+    print_info "IATA code is a 3-letter airport code (e.g., SEA, LAX, NYC, LON)" >&2
+    echo "" >&2
+    
+    while [ -z "$iata" ] || [ "$iata" = "XXX" ]; do
+        iata=$(prompt_input "Enter your IATA code (3 letters)" "${existing:-}")
+        iata=$(echo "$iata" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+        
+        if [ -z "$iata" ] || [ "$iata" = "XXX" ]; then
+            print_error "Please enter a valid IATA code"
+        elif [ ${#iata} -ne 3 ] && ! prompt_yes_no "Use '$iata' anyway?" "n"; then
+            iata=""
+        fi
+    done
+    
+    echo "$iata"
 }
 
 # Detect available serial devices
@@ -233,38 +322,12 @@ MCTOMQTT_IATA=XXX
 EOF
     fi
     
-    # Get IATA from existing config
+    # Prompt for IATA if needed
     IATA=$(grep "^MCTOMQTT_IATA=" "$ENV_LOCAL" 2>/dev/null | cut -d'=' -f2)
-    
-    # Always prompt for IATA if it's XXX or empty
     if [ -z "$IATA" ] || [ "$IATA" = "XXX" ]; then
-        echo ""
-        print_info "IATA code is a 3-letter airport code identifying your geographic region"
-        print_info "Example: SEA (Seattle), LAX (Los Angeles), NYC (New York), LON (London)"
-        echo ""
-        
-        while [ -z "$IATA" ] || [ "$IATA" = "XXX" ]; do
-            IATA=$(prompt_input "Enter your IATA code (3 letters)" "")
-            IATA=$(echo "$IATA" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
-            
-            if [ -z "$IATA" ]; then
-                print_error "IATA code cannot be empty"
-            elif [ "$IATA" = "XXX" ]; then
-                print_error "Please enter your actual IATA code, not XXX"
-            elif [ ${#IATA} -ne 3 ]; then
-                print_warning "IATA code should be 3 letters, you entered: $IATA"
-                if ! prompt_yes_no "Use '$IATA' anyway?" "n"; then
-                    IATA="XXX"  # Reset to force re-prompt
-                fi
-            fi
-        done
-        
-        # Update IATA in config
-        sed -i.bak "s/^MCTOMQTT_IATA=.*/MCTOMQTT_IATA=$IATA/" "$ENV_LOCAL"
-        rm -f "$ENV_LOCAL.bak"
-        echo ""
+        IATA=$(prompt_iata "")
+        sed -i.bak "s/^MCTOMQTT_IATA=.*/MCTOMQTT_IATA=$IATA/" "$ENV_LOCAL" && rm -f "$ENV_LOCAL.bak"
         print_success "IATA code set to: $IATA"
-        echo ""
     fi
     
     echo ""
@@ -277,7 +340,7 @@ EOF
     echo ""
     
     if [ "$DECODER_AVAILABLE" = true ]; then
-        if prompt_yes_no "Enable LetsMesh Packet Analyzer?" "y"; then
+        if prompt_yes_no "Enable LetsMesh Packet Analyzer MQTT server?" "y"; then
             cat >> "$ENV_LOCAL" << EOF
 
 # MQTT Broker 1 - LetsMesh.net Packet Analyzer
@@ -289,7 +352,7 @@ MCTOMQTT_MQTT1_USE_TLS=true
 MCTOMQTT_MQTT1_USE_AUTH_TOKEN=true
 MCTOMQTT_MQTT1_TOKEN_AUDIENCE=mqtt-us-v1.letsmesh.net
 EOF
-            print_success "LetsMesh Packet Analyzer enabled"
+            print_success "LetsMesh Packet Analyzer MQTT server enabled"
             
             if prompt_yes_no "Would you like to configure additional MQTT brokers?" "n"; then
                 configure_additional_brokers
@@ -581,7 +644,10 @@ main() {
     # Check if directory exists
     UPDATING_EXISTING=false
     if [ -d "$INSTALL_DIR" ]; then
-        if prompt_yes_no "Directory already exists. Reinstall/update?" "n"; then
+        if [ "$UPDATE_MODE" = true ]; then
+            print_info "Update mode - updating existing installation..."
+            UPDATING_EXISTING=true
+        elif prompt_yes_no "Directory already exists. Reinstall/update?" "y"; then
             print_info "Updating existing installation..."
             UPDATING_EXISTING=true
         else
@@ -603,126 +669,105 @@ main() {
         cp "${LOCAL_INSTALL}/mctomqtt.py" "$INSTALL_DIR/"
         cp "${LOCAL_INSTALL}/auth_token.py" "$INSTALL_DIR/"
         cp "${LOCAL_INSTALL}/.env" "$INSTALL_DIR/"
-        cp "${LOCAL_INSTALL}/update.sh" "$INSTALL_DIR/"
         cp "${LOCAL_INSTALL}/uninstall.sh" "$INSTALL_DIR/"
         if [ -f "${LOCAL_INSTALL}/.env.local" ]; then
             print_warning ".env.local found in source - copying as .env.local.example"
             cp "${LOCAL_INSTALL}/.env.local" "$INSTALL_DIR/.env.local.example"
         fi
         chmod +x "$INSTALL_DIR/mctomqtt.py"
-        chmod +x "$INSTALL_DIR/update.sh"
         chmod +x "$INSTALL_DIR/uninstall.sh"
         print_success "Files copied from local directory"
     else
         # Download from GitHub
         print_info "Downloading from GitHub ($REPO @ $BRANCH)..."
-        
         BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-        
-        # Download to temp directory first for verification
         TMP_DIR=$(mktemp -d)
         trap "rm -rf $TMP_DIR" EXIT
         
-        print_info "Downloading mctomqtt.py..."
-        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/mctomqtt.py" -o "$TMP_DIR/mctomqtt.py"; then
-            print_error "Failed to download mctomqtt.py from $REPO/$BRANCH"
-            print_error "Please verify the repository and branch exist"
-            exit 1
-        fi
+        # Download all files
+        download_file "$BASE_URL/mctomqtt.py" "$TMP_DIR/mctomqtt.py" "mctomqtt.py" || exit 1
+        download_file "$BASE_URL/auth_token.py" "$TMP_DIR/auth_token.py" "auth_token.py" || exit 1
+        download_file "$BASE_URL/.env" "$TMP_DIR/.env" ".env" || exit 1
+        download_file "$BASE_URL/uninstall.sh" "$TMP_DIR/uninstall.sh" "uninstall.sh" || exit 1
         
-        print_info "Downloading auth_token.py..."
-        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/auth_token.py" -o "$TMP_DIR/auth_token.py"; then
-            print_error "Failed to download auth_token.py"
-            exit 1
-        fi
-        
-        print_info "Downloading .env..."
-        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/.env" -o "$TMP_DIR/.env"; then
-            print_error "Failed to download .env"
-            exit 1
-        fi
-        
-        print_info "Downloading update.sh..."
-        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/update.sh" -o "$TMP_DIR/update.sh"; then
-            print_error "Failed to download update.sh"
-            exit 1
-        fi
-        
-        print_info "Downloading uninstall.sh..."
-        if ! curl -fsSL --retry 3 --retry-delay 2 "$BASE_URL/uninstall.sh" -o "$TMP_DIR/uninstall.sh"; then
-            print_error "Failed to download uninstall.sh"
-            exit 1
-        fi
-        
-        # Verify Python syntax before installing
+        # Verify and install
         print_info "Verifying Python syntax..."
-        if ! python3 -m py_compile "$TMP_DIR/mctomqtt.py" 2>/dev/null; then
-            print_error "Downloaded Python file has syntax errors"
-            print_error "The repository may be in an inconsistent state"
-            exit 1
-        fi
+        python3 -m py_compile "$TMP_DIR/mctomqtt.py" 2>/dev/null || { print_error "Syntax errors in mctomqtt.py"; exit 1; }
         
-        # All downloads successful and verified, now install
-        mv "$TMP_DIR/mctomqtt.py" "$INSTALL_DIR/mctomqtt.py"
-        mv "$TMP_DIR/auth_token.py" "$INSTALL_DIR/auth_token.py"
-        mv "$TMP_DIR/.env" "$INSTALL_DIR/.env"
-        mv "$TMP_DIR/update.sh" "$INSTALL_DIR/update.sh"
-        mv "$TMP_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
-        
-        chmod +x "$INSTALL_DIR/mctomqtt.py"
-        chmod +x "$INSTALL_DIR/update.sh"
-        chmod +x "$INSTALL_DIR/uninstall.sh"
+        # Move files (including hidden files like .env)
+        mv "$TMP_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
+        mv "$TMP_DIR"/.env "$INSTALL_DIR/" 2>/dev/null || true
+        chmod +x "$INSTALL_DIR/mctomqtt.py" "$INSTALL_DIR/uninstall.sh"
         print_success "Files downloaded and verified"
     fi
     
-    # Update source will be added by configure_mqtt_brokers if needed
+    # Determine installation method first
+    INSTALL_METHOD=""
+    EXISTING_INSTALL_TYPE=""
     
-    # Check Python
-    print_header "Checking Dependencies"
-    
-    if ! command -v python3 &> /dev/null; then
-        print_error "Python 3 is not installed. Please install Python 3 and try again."
-        exit 1
-    fi
-    print_success "Python 3 found: $(python3 --version)"
-    
-    # Set up virtual environment
-    print_info "Setting up Python virtual environment..."
-    if [ ! -d "$INSTALL_DIR/venv" ]; then
-        python3 -m venv "$INSTALL_DIR/venv"
-        print_success "Virtual environment created"
+    if [ "$UPDATING_EXISTING" = true ]; then
+        # For updates, detect existing installation type
+        EXISTING_INSTALL_TYPE=$(detect_system_type)
+        
+        # Skip dependency installation for Docker updates
+        if [ "$EXISTING_INSTALL_TYPE" = "docker" ]; then
+            DECODER_AVAILABLE=true
+            INSTALL_METHOD="2"
+        fi
     else
-        print_success "Using existing virtual environment"
+        # For new installations, prompt for method
+        print_header "Installation Method"
+        echo ""
+        print_info "Choose installation method:"
+        echo "  1) System service (systemd/launchd) - installs Python dependencies on host"
+        echo "  2) Docker container - all dependencies in container (requires docker to be installed)"
+        echo "  3) Manual run only (install files, no auto-start)"
+        echo ""
+        INSTALL_METHOD=$(prompt_input "Choose installation method [1-3]" "1")
     fi
     
-    # Install Python dependencies
-    print_info "Installing Python dependencies..."
-    source "$INSTALL_DIR/venv/bin/activate"
-    pip install --quiet --upgrade pip
-    pip install --quiet pyserial paho-mqtt
-    print_success "Python dependencies installed"
-    
-    # Check for meshcore-decoder (optional)
-    if command -v meshcore-decoder &> /dev/null; then
-        print_success "meshcore-decoder found: $(which meshcore-decoder)"
+    # Docker containers include meshcore-decoder by default
+    if [ "$INSTALL_METHOD" = "2" ]; then
         DECODER_AVAILABLE=true
     else
-        print_warning "meshcore-decoder not found (required for auth token authentication)"
-        if prompt_yes_no "Would you like instructions to install it now?" "y"; then
-            echo ""
-            echo "To install meshcore-decoder, run:"
-            echo "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
-            echo "  # Restart your shell or run: source ~/.bashrc (or ~/.zshrc)"
-            echo "  nvm install --lts"
-            echo "  npm install -g @michaelhart/meshcore-decoder"
-            echo ""
-            if prompt_yes_no "Continue without meshcore-decoder (you can install it later)?" "y"; then
-                DECODER_AVAILABLE=false
-            else
-                exit 1
-            fi
+        # Only install host dependencies if NOT using Docker
+        # Check Python
+        print_header "Checking Dependencies"
+        
+        if ! command -v python3 &> /dev/null; then
+            print_error "Python 3 is not installed. Please install Python 3 and try again."
+            exit 1
+        fi
+        print_success "Python 3 found: $(python3 --version)"
+        
+        # Set up virtual environment
+        print_info "Setting up Python virtual environment..."
+        if [ ! -d "$INSTALL_DIR/venv" ]; then
+            python3 -m venv "$INSTALL_DIR/venv"
+            print_success "Virtual environment created"
         else
-            DECODER_AVAILABLE=false
+            print_success "Using existing virtual environment"
+        fi
+        
+        # Install Python dependencies
+        print_info "Installing Python dependencies..."
+        source "$INSTALL_DIR/venv/bin/activate"
+        pip install --quiet --upgrade pip
+        pip install --quiet pyserial paho-mqtt
+        print_success "Python dependencies installed"
+        
+        # Check for meshcore-decoder (optional)
+        DECODER_AVAILABLE=false
+        if command -v meshcore-decoder &> /dev/null; then
+            print_success "meshcore-decoder found: $(which meshcore-decoder)"
+            DECODER_AVAILABLE=true
+        elif prompt_yes_no "Install meshcore-decoder for auth token support?" "y"; then
+            print_info "Installing nvm and Node.js..."
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] || curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+            . "$NVM_DIR/nvm.sh" && nvm install --lts && nvm use --lts
+            npm install -g @michaelhart/meshcore-decoder && DECODER_AVAILABLE=true
+            [ "$DECODER_AVAILABLE" = true ] && print_success "meshcore-decoder installed" || print_warning "May require shell restart"
         fi
     fi
     
@@ -747,50 +792,16 @@ main() {
             if prompt_yes_no "Use this configuration?" "y"; then
                 print_success "Using downloaded configuration"
                 
-                # Always prompt for IATA
-                echo ""
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                print_warning "IATA CODE REQUIRED"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo ""
-                print_info "IATA code is a 3-letter airport code and should match an airport near the reporting location"
-                print_info "Example: SEA (Seattle), LAX (Los Angeles), NYC (New York), LON (London)"
-                echo ""
-                
-                # Try to extract existing IATA from config
+                # Prompt for IATA
                 EXISTING_IATA=$(grep "^MCTOMQTT_IATA=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
+                IATA=$(prompt_iata "$EXISTING_IATA")
                 
-                IATA=""
-                while [ -z "$IATA" ] || [ "$IATA" = "XXX" ]; do
-                    if [ -n "$EXISTING_IATA" ] && [ "$EXISTING_IATA" != "XXX" ]; then
-                        IATA=$(prompt_input "Enter your IATA code" "$EXISTING_IATA")
-                    else
-                        IATA=$(prompt_input "Enter your IATA code (3 letters)" "")
-                    fi
-                    IATA=$(echo "$IATA" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
-                    
-                    if [ -z "$IATA" ]; then
-                        print_error "IATA code cannot be empty"
-                    elif [ "$IATA" = "XXX" ]; then
-                        print_error "Please enter your actual IATA code, not XXX"
-                    elif [ ${#IATA} -ne 3 ]; then
-                        print_warning "IATA code should be 3 letters, you entered: $IATA"
-                        if ! prompt_yes_no "Use '$IATA' anyway?" "n"; then
-                            IATA=""
-                        fi
-                    fi
-                done
-                
-                # Update IATA in config
                 if grep -q "^MCTOMQTT_IATA=" "$INSTALL_DIR/.env.local"; then
-                    sed -i.bak "s/^MCTOMQTT_IATA=.*/MCTOMQTT_IATA=$IATA/" "$INSTALL_DIR/.env.local"
-                    rm -f "$INSTALL_DIR/.env.local.bak"
+                    sed -i.bak "s/^MCTOMQTT_IATA=.*/MCTOMQTT_IATA=$IATA/" "$INSTALL_DIR/.env.local" && rm -f "$INSTALL_DIR/.env.local.bak"
                 else
                     echo "MCTOMQTT_IATA=$IATA" >> "$INSTALL_DIR/.env.local"
                 fi
-                echo ""
                 print_success "IATA code set to: $IATA"
-                echo ""
                 
                 # Check if MQTT1 is already configured and offer additional brokers
                 if grep -q "^MCTOMQTT_MQTT1_ENABLED=true" "$INSTALL_DIR/.env.local" 2>/dev/null; then
@@ -818,7 +829,9 @@ main() {
             fi
         fi
     elif [ "$UPDATING_EXISTING" = true ] && [ -f "$INSTALL_DIR/.env.local" ]; then
-        if prompt_yes_no "Existing configuration found. Reconfigure?" "n"; then
+        if [ "$UPDATE_MODE" = true ]; then
+            print_info "Keeping existing configuration"
+        elif prompt_yes_no "Existing configuration found. Reconfigure?" "n"; then
             # Back up existing config before reconfiguring
             cp "$INSTALL_DIR/.env.local" "$INSTALL_DIR/.env.local.backup-$(date +%Y%m%d-%H%M%S)"
             rm -f "$INSTALL_DIR/.env.local"
@@ -830,17 +843,118 @@ main() {
         configure_mqtt_brokers
     fi
     
-    # Service installation
-    print_header "Service Installation"
+    # Service installation/update
+    if [ "$UPDATING_EXISTING" = true ]; then
+        print_header "Service Restart"
+        
+        # Detect existing service type and restart
+        SYSTEM_TYPE=$(detect_system_type)
+        print_info "Detected existing installation type: $SYSTEM_TYPE"
+        
+        case "$SYSTEM_TYPE" in
+            docker)
+                if [ "$UPDATE_MODE" = true ] || prompt_yes_no "Rebuild and restart Docker container?" "y"; then
+                    # Detect docker command
+                    DOCKER=$(docker_cmd) || DOCKER="docker"
+                    
+                    # Download latest Dockerfile
+                    print_info "Downloading latest Dockerfile..."
+                    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
+                    if ! curl -fsSL "$BASE_URL/Dockerfile" -o "$INSTALL_DIR/Dockerfile"; then
+                        print_error "Failed to download Dockerfile"
+                    fi
+                    
+                    # Rebuild Docker image
+                    print_info "Rebuilding Docker image..."
+                    if [ -f "$INSTALL_DIR/Dockerfile" ]; then
+                        echo ""
+                        if $DOCKER build -t mctomqtt:latest "$INSTALL_DIR"; then
+                            print_success "Docker image rebuilt"
+                        else
+                            print_error "Failed to rebuild Docker image"
+                        fi
+                        echo ""
+                    fi
+                    
+                    # Restart container
+                    if $DOCKER ps -a | grep -q mctomqtt; then
+                        print_info "Restarting container..."
+                        $DOCKER stop mctomqtt 2>/dev/null || true
+                        $DOCKER rm mctomqtt 2>/dev/null || true
+                        
+                        # Recreate container
+                        SERIAL_DEVICE=$(grep "^MCTOMQTT_SERIAL_PORTS=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2 | cut -d',' -f1)
+                        SERIAL_DEVICE="${SERIAL_DEVICE:-/dev/ttyACM0}"
+                        DOCKER_RUN_CMD="$DOCKER run -d --name mctomqtt --restart unless-stopped -v $INSTALL_DIR/.env.local:/opt/.env.local"
+                        if [ -e "$SERIAL_DEVICE" ]; then
+                            DOCKER_RUN_CMD="$DOCKER_RUN_CMD --device=$SERIAL_DEVICE"
+                        fi
+                        DOCKER_RUN_CMD="$DOCKER_RUN_CMD mctomqtt:latest"
+                        
+                        if eval "$DOCKER_RUN_CMD"; then
+                            check_service_health "docker"
+                            DOCKER_INSTALLED=true
+                        fi
+                    fi
+                fi
+                ;;
+            systemd)
+                if systemctl is-active --quiet mctomqtt.service 2>/dev/null; then
+                    if [ "$UPDATE_MODE" = true ] || prompt_yes_no "Restart systemd service?" "y"; then
+                        sudo systemctl restart mctomqtt.service
+                        check_service_health "systemd"
+                    fi
+                    SERVICE_INSTALLED=true
+                fi
+                ;;
+            launchd)
+                if launchctl list | grep -q com.meshcore.mctomqtt 2>/dev/null; then
+                    if [ "$UPDATE_MODE" = true ] || prompt_yes_no "Restart launchd service?" "y"; then
+                        launchctl stop com.meshcore.mctomqtt 2>/dev/null || true
+                        sleep 2
+                        launchctl start com.meshcore.mctomqtt 2>/dev/null || true
+                        check_service_health "launchd"
+                    fi
+                    SERVICE_INSTALLED=true
+                fi
+                ;;
+            *)
+                print_info "No existing service found - you can install one now"
+                if prompt_yes_no "Install service?" "n"; then
+                    # Fall through to new installation below
+                    UPDATING_EXISTING=false
+                fi
+                ;;
+        esac
+    fi
     
-    SYSTEM_TYPE=$(detect_system_type)
-    print_info "Detected system type: $SYSTEM_TYPE"
-    
-    if prompt_yes_no "Would you like to install as a system service?" "y"; then
-        install_service "$SYSTEM_TYPE"
-    else
-        print_info "Skipping service installation"
-        print_info "To run manually: cd $INSTALL_DIR && ./venv/bin/python3 mctomqtt.py"
+    # New service installation (only if not updating or no service found)
+    if [ "$UPDATING_EXISTING" = false ]; then
+        print_header "Service Installation"
+        
+        case "$INSTALL_METHOD" in
+            1)
+                SYSTEM_TYPE=$(detect_system_type_native)
+                print_info "Detected system type: $SYSTEM_TYPE"
+                install_service "$SYSTEM_TYPE"
+                ;;
+            2)
+                install_docker
+                ;;
+            3)
+                print_info "Skipping service installation"
+                print_info "To run manually: cd $INSTALL_DIR && ./venv/bin/python3 mctomqtt.py"
+                SERVICE_INSTALLED=false
+                
+                # Save installation type marker
+                echo "manual" > "$INSTALL_DIR/.install_type"
+                ;;
+            *)
+                print_warning "Invalid selection, skipping service installation"
+                print_info "To run manually: cd $INSTALL_DIR && ./venv/bin/python3 mctomqtt.py"
+                SERVICE_INSTALLED=false
+                ;;
+        esac
     fi
     
     # Final summary
@@ -850,7 +964,14 @@ main() {
     echo "Configuration file: $INSTALL_DIR/.env.local"
     echo ""
     
-    if [ "$SERVICE_INSTALLED" = true ]; then
+    if [ "$DOCKER_INSTALLED" = true ]; then
+        echo "Docker container management:"
+        echo "  Start:   docker start mctomqtt"
+        echo "  Stop:    docker stop mctomqtt"
+        echo "  Status:  docker ps -a | grep mctomqtt"
+        echo "  Logs:    docker logs -f mctomqtt"
+        echo "  Restart: docker restart mctomqtt"
+    elif [ "$SERVICE_INSTALLED" = true ]; then
         case "$SYSTEM_TYPE" in
             systemd)
                 echo "Service management:"
@@ -875,8 +996,33 @@ main() {
     print_success "Installation complete!"
 }
 
-# Detect system type
+# Detect system type (checks for installation marker file first)
 detect_system_type() {
+    # Check for installation type marker file
+    if [ -f "$INSTALL_DIR/.install_type" ]; then
+        cat "$INSTALL_DIR/.install_type"
+        return 0
+    fi
+    
+    # Fallback: try to detect from running services (for legacy installations)
+    DOCKER=$(docker_cmd 2>/dev/null) || DOCKER="docker"
+    if $DOCKER ps -a 2>/dev/null | grep -q mctomqtt; then
+        echo "docker"
+    elif systemctl is-active --quiet mctomqtt.service 2>/dev/null || [ -f /etc/systemd/system/mctomqtt.service ]; then
+        echo "systemd"
+    elif launchctl list 2>/dev/null | grep -q com.meshcore.mctomqtt || [ -f "$HOME/Library/LaunchAgents/com.meshcore.mctomqtt.plist" ]; then
+        echo "launchd"
+    elif command -v systemctl &> /dev/null; then
+        echo "systemd"
+    elif [ "$(uname)" = "Darwin" ]; then
+        echo "launchd"
+    else
+        echo "unknown"
+    fi
+}
+
+# Detect native system type (ignores existing Docker/services)
+detect_system_type_native() {
     if command -v systemctl &> /dev/null; then
         echo "systemd"
     elif [ "$(uname)" = "Darwin" ]; then
@@ -952,38 +1098,14 @@ EOF
         
         if prompt_yes_no "Start service now?" "y"; then
             sudo systemctl start mctomqtt.service
-            
-            print_info "Waiting for service to start..."
-            sleep 3
-            
-            # Check if service is actually running and connected
-            print_info "Checking service health..."
-            sleep 2
-            
-            if sudo systemctl is-active --quiet mctomqtt.service; then
-                # Check logs for successful MQTT connection
-                if sudo journalctl -u mctomqtt.service --since "10 seconds ago" | grep -q "Connected to.*MQTT broker"; then
-                    print_success "Service started and connected to MQTT successfully"
-                    echo ""
-                    print_info "Recent logs:"
-                    sudo journalctl -u mctomqtt.service -n 10 --no-pager
-                else
-                    print_warning "Service started but may not be connected to MQTT yet"
-                    echo ""
-                    print_info "Recent logs:"
-                    sudo journalctl -u mctomqtt.service -n 15 --no-pager
-                    echo ""
-                    print_warning "Check logs with: sudo journalctl -u mctomqtt -f"
-                fi
-            else
-                print_error "Service failed to start"
-                echo ""
-                sudo systemctl status mctomqtt.service --no-pager || true
-            fi
+            check_service_health "systemd"
         fi
         
         SERVICE_INSTALLED=true
         print_success "Systemd service installed"
+        
+        # Save installation type marker
+        echo "systemd" > "$INSTALL_DIR/.install_type"
     else
         print_error "Failed to install service (sudo required)"
         SERVICE_INSTALLED=false
@@ -1044,8 +1166,99 @@ EOF
     
     SERVICE_INSTALLED=true
     print_success "Launchd service installed"
+    
+    # Save installation type marker
+    echo "launchd" > "$INSTALL_DIR/.install_type"
+}
+
+# Install Docker container
+install_docker() {
+    print_info "Setting up Docker installation..."
+    
+    # Check if Docker is available
+    if ! command -v docker &> /dev/null; then
+        print_error "Docker is not installed. Please install Docker first:"
+        echo "  macOS: https://docs.docker.com/desktop/install/mac-install/"
+        echo "  Linux: https://docs.docker.com/engine/install/"
+        return 1
+    fi
+    
+    # Detect docker command (with or without sudo)
+    DOCKER=$(docker_cmd)
+    if [ $? -ne 0 ]; then
+        print_error "Docker daemon is not running. Please start Docker and try again."
+        return 1
+    fi
+    
+    print_success "Docker found: $($DOCKER --version)"
+    
+    # Build Docker image
+    print_header "Building Docker Image"
+    
+    # Create Dockerfile in install directory if not present
+    if [ ! -f "$INSTALL_DIR/Dockerfile" ]; then
+        print_info "Downloading Dockerfile..."
+        BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
+        if ! curl -fsSL "$BASE_URL/Dockerfile" -o "$INSTALL_DIR/Dockerfile"; then
+            print_error "Failed to download Dockerfile"
+            return 1
+        fi
+    fi
+    
+    print_info "Building mctomqtt:latest image..."
+    echo ""
+    if $DOCKER build -t mctomqtt:latest "$INSTALL_DIR"; then
+        print_success "Docker image built successfully"
+    else
+        print_error "Failed to build Docker image"
+        return 1
+    fi
+    echo ""
+    
+    # Get serial device from .env.local
+    SERIAL_DEVICE=$(grep "^MCTOMQTT_SERIAL_PORTS=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2 | cut -d',' -f1)
+    SERIAL_DEVICE="${SERIAL_DEVICE:-/dev/ttyACM0}"
+    
+    # Generate docker run command
+    DOCKER_RUN_CMD="$DOCKER run -d --name mctomqtt --restart unless-stopped -v $INSTALL_DIR/.env.local:/opt/.env.local"
+    
+    # Add device mapping if device exists
+    if [ -e "$SERIAL_DEVICE" ]; then
+        DOCKER_RUN_CMD="$DOCKER_RUN_CMD --device=$SERIAL_DEVICE"
+    else
+        print_warning "Serial device $SERIAL_DEVICE not found - container will start but may not connect"
+    fi
+    
+    DOCKER_RUN_CMD="$DOCKER_RUN_CMD mctomqtt:latest"
+    
+    echo ""
+    print_info "Docker run command:"
+    echo "  $DOCKER_RUN_CMD"
+    echo ""
+    
+    if prompt_yes_no "Start Docker container now?" "y"; then
+        # Remove existing container if present
+        if $DOCKER ps -a | grep -q mctomqtt; then
+            print_info "Removing existing mctomqtt container..."
+            $DOCKER rm -f mctomqtt &> /dev/null || true
+        fi
+        
+        # Start container
+        if eval "$DOCKER_RUN_CMD"; then
+            print_success "Docker container started"
+            check_service_health "docker"
+        else
+            print_error "Failed to start Docker container"
+            return 1
+        fi
+    fi
+    
+    DOCKER_INSTALLED=true
+    SERVICE_INSTALLED=false
+    
+    # Save installation type marker
+    echo "docker" > "$INSTALL_DIR/.install_type"
 }
 
 # Run main
 main "$@"
-

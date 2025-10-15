@@ -70,7 +70,10 @@ prompt_input() {
 
 # Detect system type
 detect_system_type() {
-    if command -v systemctl &> /dev/null; then
+    # Check for Docker container first
+    if docker ps -a 2>/dev/null | grep -q mctomqtt; then
+        echo "docker"
+    elif command -v systemctl &> /dev/null; then
         echo "systemd"
     elif [ "$(uname)" = "Darwin" ]; then
         echo "launchd"
@@ -128,6 +131,33 @@ remove_launchd_service() {
     fi
 }
 
+# Remove Docker container and image
+remove_docker() {
+    if docker ps -a 2>/dev/null | grep -q mctomqtt; then
+        print_info "Stopping and removing Docker container..."
+        
+        # Stop if running
+        if docker ps | grep -q mctomqtt; then
+            docker stop mctomqtt
+            print_success "Container stopped"
+        fi
+        
+        # Remove container
+        docker rm mctomqtt
+        print_success "Container removed"
+    else
+        print_info "No Docker container found"
+    fi
+    
+    # Ask about removing image
+    if docker images | grep -q "mctomqtt"; then
+        if prompt_yes_no "Remove Docker image (mctomqtt:latest)?" "y"; then
+            docker rmi mctomqtt:latest
+            print_success "Docker image removed"
+        fi
+    fi
+}
+
 # Main uninstallation
 main() {
     print_header "MeshCore to MQTT Uninstaller"
@@ -158,6 +188,9 @@ main() {
     print_info "Detected system type: $SYSTEM_TYPE"
     
     case "$SYSTEM_TYPE" in
+        docker)
+            remove_docker
+            ;;
         systemd)
             remove_systemd_service
             ;;

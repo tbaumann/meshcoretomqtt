@@ -12,16 +12,16 @@ One way of tracking a message through the mesh is filtering the MQTT data on the
 curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | bash
 ```
 
-### Regional Pre-Configuration
-Use a regional configuration template for quick setup:
+### Pre-Configuration from URL
+Use a hosted configuration file for quick setup:
 
 ```bash
-# PugetMesh (Seattle, WA)
+# Example: Local broker + LetsMesh.net Packet Analyzer MQTT server
 curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | \
-  bash -s -- --config https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/configs/.env.pugetmesh
+  bash -s -- --config https://gist.githubusercontent.com/username/abc123/raw/my-config.env
 ```
 
-See [configs/README.md](configs/README.md) for more regional configurations.
+This is useful for deploying multiple nodes with the same configuration.
 
 ### Custom Configuration URL
 Use your own configuration (Gist, repo, etc.):
@@ -43,9 +43,9 @@ The installer will:
 - Guide you through interactive configuration (or use provided config)
 - Set up Python virtual environment
 - Configure one or multiple MQTT brokers
-- Install as a system service (optional)
+- Choose installation method: system service, Docker container, or manual
 - Handle both Linux (systemd) and macOS (launchd)
-- Store update source for future updates
+- Auto-detect and update existing installations
 
 ### Local Testing
 If you want to test the installer locally:
@@ -193,8 +193,10 @@ npm install -g @michaelhart/meshcore-decoder
 
 ## Running the Script
 
-### As a System Service (Recommended)
-The installer sets this up automatically. Manual commands:
+The installer offers three deployment options:
+
+### 1. System Service (Recommended)
+Automatically starts on boot and runs in the background.
 
 **Linux (systemd):**
 ```bash
@@ -213,7 +215,28 @@ launchctl list | grep mctomqtt           # Check status
 tail -f ~/Library/Logs/mctomqtt.log      # View logs
 ```
 
-### Manual Execution
+### 2. Docker Container
+Isolated containerized deployment with automatic restarts.
+
+#### Manual Docker Setup
+If you prefer to run Docker manually without the installer:
+
+```bash
+# Build the image
+docker build -t mctomqtt:latest /path/to/meshcoretomqtt
+
+# Run the container
+docker run -d \
+  --name mctomqtt \
+  --restart unless-stopped \
+  -v ~/.meshcoretomqtt/.env.local:/opt/.env.local \
+  --device=/dev/ttyACM0 \
+  mctomqtt:latest
+```
+
+### 3. Manual Execution
+Run directly without service management.
+
 ```bash
 cd ~/.meshcoretomqtt
 ./venv/bin/python3 mctomqtt.py
@@ -227,49 +250,55 @@ With debug output:
 ## Updates
 
 ### Automatic Updates
-The installer stores the update source (repo and branch) in your configuration. To update:
+Simply re-run the installer - it will detect your existing installation and offer to update:
 
 ```bash
-cd ~/.meshcoretomqtt
-./update.sh
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | bash
+```
+
+Or for non-interactive updates (useful for scripts/automation):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Cisien/meshcoretomqtt/main/install.sh | bash -s -- --update
 ```
 
 The updater will:
-- Use the stored update source from your installation
-- Stop the service (if running)
-- Backup your `.env.local` configuration
+- Detect your existing service type (systemd/launchd/Docker)
+- Stop the service/container
 - Download and verify updated files
-- Restore your configuration
-- Restart the service (if it was running)
+- Preserve your `.env.local` configuration
+- Restart the service/container automatically
 
-### Manual Update Source
-You can override the update source in `.env.local`:
+### Custom Repository Updates
+Install from a specific repo/branch:
 
 ```bash
-# In ~/.meshcoretomqtt/.env.local
-UPDATE_REPO=yourusername/meshcoretomqtt
-UPDATE_BRANCH=yourbranch
+# Using environment variables
+INSTALL_REPO=yourusername/meshcoretomqtt INSTALL_BRANCH=yourbranch bash <(curl -fsSL https://raw.githubusercontent.com/yourusername/meshcoretomqtt/yourbranch/install.sh)
+
+# Or using flags
+curl -fsSL https://raw.githubusercontent.com/yourusername/meshcoretomqtt/yourbranch/install.sh | \
+  bash -s -- --repo yourusername/meshcoretomqtt --branch yourbranch
 ```
 
-### Re-running the Installer
-Alternatively, re-run the installer to update and reconfigure:
+### Local Updates
+If you've cloned the repository:
 
 ```bash
-cd ~/.meshcoretomqtt
+cd meshcoretomqtt
 LOCAL_INSTALL=$(pwd) ./install.sh
 ```
-
-This will detect existing installation and offer to update/reconfigure.
 
 ## Reconfiguration
 
-To reconfigure without updating:
-```bash
-cd ~/.meshcoretomqtt
-LOCAL_INSTALL=$(pwd) ./install.sh
-```
+To reconfigure without updating, either:
 
-Select "Reconfigure" when prompted, or edit `.env.local` directly.
+1. **Interactive:** Re-run the installer and select "Reconfigure" when prompted
+2. **Manual:** Edit `.env.local` directly and restart the service:
+   ```bash
+   nano ~/.meshcoretomqtt/.env.local
+   # Then restart: sudo systemctl restart mctomqtt (or docker restart mctomqtt)
+   ```
 
 ## Uninstallation
 
@@ -289,9 +318,9 @@ The uninstaller will:
 - Prompt before removing configuration
 - Clean up all installed files
 
-## Docker Installation (Alternative)
+## Manual Docker Installation
 
-For containerized deployment:
+The installer can set up Docker automatically (option 2 during installation). For manual Docker setup:
 
 1. Create a configuration directory:
 ```bash
@@ -301,32 +330,37 @@ mkdir -p ~/mctomqtt-config
 2. Create your `.env.local` in the config directory:
 ```bash
 cat > ~/mctomqtt-config/.env.local << 'EOF'
-SERIAL_PORTS=/dev/ttyACM0
-IATA=SEA
-MQTT1_ENABLED=true
-MQTT1_SERVER=mqtt.example.com
-MQTT1_USERNAME=user
-MQTT1_PASSWORD=pass
+MCTOMQTT_SERIAL_PORTS=/dev/ttyACM0
+MCTOMQTT_IATA=SEA
+MCTOMQTT_MQTT1_ENABLED=true
+MCTOMQTT_MQTT1_SERVER=mqtt.example.com
+MCTOMQTT_MQTT1_USERNAME=user
+MCTOMQTT_MQTT1_PASSWORD=pass
 EOF
 ```
 
 3. Build and run:
 ```bash
-docker build -t meshcoretomqtt:latest .
+docker build -t mctomqtt:latest .
 docker run -d --name mctomqtt \
   -v ~/mctomqtt-config/.env.local:/opt/.env.local \
   --device=/dev/ttyACM0 \
   --restart unless-stopped \
-  meshcoretomqtt:latest
+  mctomqtt:latest
 ```
+
+Note: Instead of `/dev/ttyACM0` or similar, you can run `ls /dev/serial/by-id/ -al` to find the correct device and a more consistent device reference.
 
 4. View logs:
 ```bash
 docker logs -f mctomqtt
 ```
 
+**Note:** The installer handles all of this automatically, including interactive configuration!
+
 ## Privacy
-MeshCore does not currently have any privacy controls baked into the protocol ([#435](https://github.com/ripplebiz/MeshCore/issues/435)). To compensate for this, the decoding logic will not publish the decoded payload of an advert for any node that does not have a `^` character at the end of its name. Downstream consumers of this data should ignore any packets that include a "sender" or "receiver" that it has not seen a recent advert for.
+
+This tool collects and forwards all packets transmitted over the MeshCore network. MeshCore does not currently have any privacy controls baked into the protocol to designate whether a user would like their data logged ([#435](https://github.com/ripplebiz/MeshCore/issues/435)). Privacy on MeshCore is provided by protecting secret channel keys - only packets encrypted with known channel keys can be decrypted and read. Packets on channels where you don't have the key will be forwarded as encrypted data.
 
 ## Viewing the data
 
