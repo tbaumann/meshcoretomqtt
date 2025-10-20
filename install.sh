@@ -4,7 +4,7 @@
 # ============================================================================
 set -e
 
-SCRIPT_VERSION="1.0.1"
+SCRIPT_VERSION="1.0.3"
 DEFAULT_REPO="Cisien/meshcoretomqtt"
 DEFAULT_BRANCH="main"
 
@@ -957,6 +957,9 @@ main() {
         esac
     fi
     
+    # Create version info file
+    create_version_info
+    
     # Final summary
     print_header "Installation Complete!"
     echo "Installation directory: $INSTALL_DIR"
@@ -1258,6 +1261,34 @@ install_docker() {
     
     # Save installation type marker
     echo "docker" > "$INSTALL_DIR/.install_type"
+}
+
+# Create version info file with installer version and git hash
+create_version_info() {
+    local git_hash="unknown"
+    local git_branch="${BRANCH}"
+    local git_repo="${REPO}"
+    
+    # Try to resolve the branch/tag to a specific commit hash via GitHub API
+    if command -v curl >/dev/null 2>&1; then
+        # Try to get commit SHA from GitHub API
+        local api_url="https://api.github.com/repos/${git_repo}/commits/${git_branch}"
+        git_hash=$(curl -fsSL "$api_url" 2>/dev/null | grep -m1 '"sha"' | cut -d'"' -f4 | head -c7)
+        [ -z "$git_hash" ] && git_hash="unknown"
+    fi
+    
+    # Create version info JSON file
+    cat > "$INSTALL_DIR/.version_info" <<EOF
+{
+  "installer_version": "${SCRIPT_VERSION}",
+  "git_hash": "${git_hash}",
+  "git_branch": "${git_branch}",
+  "git_repo": "${git_repo}",
+  "install_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+    
+    print_info "Version info saved: ${SCRIPT_VERSION}-${git_hash} (${git_repo}@${git_branch})"
 }
 
 # Run main

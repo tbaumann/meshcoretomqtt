@@ -14,7 +14,7 @@ def base64url_encode(data: bytes) -> str:
     """Base64url encode without padding"""
     return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
 
-def create_auth_token(public_key_hex: str, private_key_hex: str, expiry_seconds: int = 86400, **claims) -> str:
+def create_auth_token(public_key_hex: str, private_key_hex: str, expiry_seconds: int = 3600, **claims) -> str:
     """
     Create a JWT-style auth token for MeshCore MQTT authentication
     
