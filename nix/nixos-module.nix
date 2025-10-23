@@ -2,14 +2,26 @@
   lib,
   config,
   pkgs,
+  self,
   ...
 }: let
   cfg = config.services.mctomqtt;
 
+  # Convert values to proper environment variable strings
+  toEnvValue = value:
+    if builtins.isBool value
+    then
+      if value
+      then "true"
+      else "false"
+    else if builtins.isList value
+    then lib.concatStringsSep "," value
+    else builtins.toString value;
+
   # Convert Nix attribute set to environment variables
   settingsToEnv = settings:
     lib.mapAttrsToList (
-      name: value: "MCTOMQTT_${lib.toUpper (lib.replaceStrings ["-"] ["_"] name)}=${builtins.toString value}"
+      name: value: "MCTOMQTT_${lib.toUpper (lib.replaceStrings ["-"] ["_"] name)}=${toEnvValue value}"
     )
     settings;
 
@@ -20,7 +32,7 @@
           prefix = "MCTOMQTT_MQTT${toString index}";
         in
           lib.mapAttrsToList (
-            name: value: "${prefix}_${lib.toUpper (lib.replaceStrings ["-"] ["_"] name)}=${builtins.toString value}"
+            name: value: "${prefix}_${lib.toUpper (lib.replaceStrings ["-"] ["_"] name)}=${toEnvValue value}"
           )
           broker
       )
@@ -31,7 +43,6 @@ in {
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = config.defaultPackage.${pkgs.system} or (throw "No default package available for system ${pkgs.system}");
       defaultText = lib.literalExpression "self.packages.${pkgs.system}.default";
       description = "mctomqtt package to use";
     };
@@ -88,9 +99,6 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    # Default package reference for systems that have it
-    defaultPackage.${pkgs.system} = lib.mkDefault self.packages.${pkgs.system}.default;
-
     # Create system user and group
     users.users.mctomqtt = {
       isSystemUser = true;
@@ -103,14 +111,12 @@ in {
 
     systemd.services.mctomqtt = {
       description = "MeshCore to MQTT Bridge";
-      after = ["network.target"];
       wantedBy = ["multi-user.target"];
 
       serviceConfig = {
         Type = "simple";
         ExecStart = "${lib.getExe cfg.package}";
         Restart = "on-failure";
-        RestartSec = "5s";
 
         # Run as dedicated user
         User = "mctomqtt";
@@ -145,8 +151,8 @@ in {
       };
 
       # Ensure serial devices are available
-      unitConfig.Requires = map (port: "dev-${lib.replaceStrings ["/"] [""] port}.device") cfg.serialPorts;
-      unitConfig.After = map (port: "dev-${lib.replaceStrings ["/"] [""] port}.device") cfg.serialPorts;
+      requires = map (port: "dev-${lib.replaceStrings ["/dev/"] [""] port}.device") cfg.serialPorts;
+      after = ["network.target"] ++ map (port: "dev-${lib.replaceStrings ["/dev/"] [""] port}.device") cfg.serialPorts;
     };
   };
 }
