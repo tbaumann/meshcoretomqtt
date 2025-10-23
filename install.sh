@@ -4,7 +4,7 @@
 # ============================================================================
 set -e
 
-SCRIPT_VERSION="1.0.4"
+SCRIPT_VERSION="1.0.5"
 DEFAULT_REPO="Cisien/meshcoretomqtt"
 DEFAULT_BRANCH="main"
 
@@ -333,17 +333,18 @@ EOF
     echo ""
     print_header "MQTT Broker Configuration"
     echo ""
-    print_info "Enable the LetsMesh.net Packet Analyzer (mqtt-us-v1.letsmesh.net) broker?"
+    print_info "Enable the LetsMesh.net Packet Analyzer MQTT servers?"
     echo "  • Real-time packet analysis and visualization"
     echo "  • Network health monitoring"
+    echo "  • Includes US and EU regional brokers for redundancy"
     echo "  • Requires meshcore-decoder for authentication"
     echo ""
     
     if [ "$DECODER_AVAILABLE" = true ]; then
-        if prompt_yes_no "Enable LetsMesh Packet Analyzer MQTT server?" "y"; then
+        if prompt_yes_no "Enable LetsMesh Packet Analyzer MQTT servers?" "y"; then
             cat >> "$ENV_LOCAL" << EOF
 
-# MQTT Broker 1 - LetsMesh.net Packet Analyzer
+# MQTT Broker 1 - LetsMesh.net Packet Analyzer (US)
 MCTOMQTT_MQTT1_ENABLED=true
 MCTOMQTT_MQTT1_SERVER=mqtt-us-v1.letsmesh.net
 MCTOMQTT_MQTT1_PORT=443
@@ -351,8 +352,17 @@ MCTOMQTT_MQTT1_TRANSPORT=websockets
 MCTOMQTT_MQTT1_USE_TLS=true
 MCTOMQTT_MQTT1_USE_AUTH_TOKEN=true
 MCTOMQTT_MQTT1_TOKEN_AUDIENCE=mqtt-us-v1.letsmesh.net
+
+# MQTT Broker 2 - LetsMesh.net Packet Analyzer (EU)
+MCTOMQTT_MQTT2_ENABLED=true
+MCTOMQTT_MQTT2_SERVER=mqtt-eu-v1.letsmesh.net
+MCTOMQTT_MQTT2_PORT=443
+MCTOMQTT_MQTT2_TRANSPORT=websockets
+MCTOMQTT_MQTT2_USE_TLS=true
+MCTOMQTT_MQTT2_USE_AUTH_TOKEN=true
+MCTOMQTT_MQTT2_TOKEN_AUDIENCE=mqtt-eu-v1.letsmesh.net
 EOF
-            print_success "LetsMesh Packet Analyzer MQTT server enabled"
+            print_success "LetsMesh Packet Analyzer MQTT servers enabled: mqtt-us-v1.letsmesh.net, mqtt-eu-v1.letsmesh.net"
             
             if prompt_yes_no "Would you like to configure additional MQTT brokers?" "n"; then
                 configure_additional_brokers
@@ -385,9 +395,9 @@ EOF
     fi
 }
 
-# Configure additional brokers (starting from MQTT2)
+# Configure additional brokers (auto-detects next available number)
 configure_additional_brokers() {
-    # Find next available broker number
+    # Find next available broker number (starts from 2, or 3 if LetsMesh is enabled)
     NEXT_BROKER=2
     while grep -q "^MCTOMQTT_MQTT${NEXT_BROKER}_ENABLED=" "$INSTALL_DIR/.env.local" 2>/dev/null; do
         NEXT_BROKER=$((NEXT_BROKER + 1))
@@ -803,11 +813,16 @@ main() {
                 fi
                 print_success "IATA code set to: $IATA"
                 
-                # Check if MQTT1 is already configured and offer additional brokers
+                # Check if MQTT brokers are already configured and offer additional brokers
                 if grep -q "^MCTOMQTT_MQTT1_ENABLED=true" "$INSTALL_DIR/.env.local" 2>/dev/null; then
                     MQTT1_SERVER=$(grep "^MCTOMQTT_MQTT1_SERVER=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
+                    MQTT2_SERVER=$(grep "^MCTOMQTT_MQTT2_SERVER=" "$INSTALL_DIR/.env.local" 2>/dev/null | cut -d'=' -f2)
                     echo ""
-                    print_success "MQTT Broker 1 already configured: $MQTT1_SERVER"
+                    if [ -n "$MQTT2_SERVER" ]; then
+                        print_success "MQTT Brokers already configured: $MQTT1_SERVER, $MQTT2_SERVER"
+                    else
+                        print_success "MQTT Broker 1 already configured: $MQTT1_SERVER"
+                    fi
                     
                     if prompt_yes_no "Would you like to configure additional MQTT brokers?" "n"; then
                         configure_additional_brokers
@@ -842,6 +857,9 @@ main() {
     elif [ ! -f "$INSTALL_DIR/.env.local" ]; then
         configure_mqtt_brokers
     fi
+    
+    # Create version info file
+    create_version_info
     
     # Service installation/update
     if [ "$UPDATING_EXISTING" = true ]; then
@@ -956,9 +974,6 @@ main() {
                 ;;
         esac
     fi
-    
-    # Create version info file
-    create_version_info
     
     # Final summary
     print_header "Installation Complete!"

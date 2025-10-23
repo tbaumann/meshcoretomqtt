@@ -3,6 +3,7 @@ import sys
 import os
 import json
 import serial
+import threading
 import argparse
 import re
 import time
@@ -95,6 +96,7 @@ class MeshCoreBridge:
         self.ser = None
         self.mqtt_clients = []
         self.mqtt_connected = False
+        self.connection_events = {}  # Track connection completion per broker
         self.should_exit = False
         self.global_iata = os.getenv('MCTOMQTT_IATA', 'XXX')
         self.reconnect_delay = 1.0  # Start with 1 second
@@ -406,21 +408,27 @@ class MeshCoreBridge:
     def on_mqtt_connect(self, client, userdata, flags, rc, properties=None):
         broker_name = userdata.get('name', 'unknown') if userdata else 'unknown'
         broker_num = userdata.get('broker_num', None) if userdata else None
+        
+        # Signal that this broker has completed its connection attempt (success or fail)
+        if broker_num in self.connection_events:
+            self.connection_events[broker_num].set()
+        
         if rc == 0:
             # Reset reconnect delay on successful connection
             self.reconnect_delay = 1.0
             
-            # Mark this specific broker as connected
+            # Check if this specific broker was already connected
+            was_broker_connected = False
             for mqtt_info in self.mqtt_clients:
                 if mqtt_info['broker_num'] == broker_num:
+                    was_broker_connected = mqtt_info.get('connected', False)
                     mqtt_info['connected'] = True
                     break
             
-            # Check if this is the first successful connection
-            was_connected = self.mqtt_connected
+            # Mark that at least one broker is connected
             self.mqtt_connected = True
             
-            if not was_connected:
+            if not was_broker_connected:
                 logger.info(f"Connected to MQTT broker: {broker_name}")
             else:
                 logger.info(f"Reconnected to MQTT broker: {broker_name}")
@@ -448,7 +456,8 @@ class MeshCoreBridge:
         broker_name = userdata.get('name', 'unknown') if userdata else 'unknown'
         broker_num = userdata.get('broker_num', None) if userdata else None
         
-        logger.warning(f"Disconnected from MQTT broker {broker_name} (code: {reason_code})")
+        # Log more details about the disconnect
+        logger.warning(f"Disconnected from MQTT broker {broker_name} (code: {reason_code}, flags: {disconnect_flags}, properties: {properties})")
         
         # Mark this specific client as disconnected
         for mqtt_info in self.mqtt_clients:
@@ -569,8 +578,6 @@ class MeshCoreBridge:
             mqtt_client.on_connect = self.on_mqtt_connect
             mqtt_client.on_disconnect = self.on_mqtt_disconnect
             
-            # Enable automatic reconnection in paho client
-            mqtt_client.reconnect_delay_set(min_delay=1, max_delay=120)
             
             server = self.get_env(f"MQTT{broker_num}_SERVER", "")
             if not server:
@@ -619,9 +626,12 @@ class MeshCoreBridge:
             return None
 
     def connect_mqtt(self):
-        """Connect to all configured MQTT brokers"""
+        """Connect to all configured MQTT brokers and wait for all to complete initial connection"""
         # Try to connect to MQTT1, MQTT2, MQTT3, MQTT4 (can expand if needed)
         for broker_num in range(1, 5):
+            # Create an event for this broker to signal connection completion
+            self.connection_events[broker_num] = threading.Event()
+            
             client_info = self.connect_mqtt_broker(broker_num)
             if client_info:
                 self.mqtt_clients.append(client_info)
@@ -632,13 +642,21 @@ class MeshCoreBridge:
         
         logger.info(f"Initiated connection to {len(self.mqtt_clients)} MQTT broker(s)")
         
-        # Wait for at least one broker to connect
-        max_wait = 10  # seconds
-        start_time = time.time()
-        while not self.mqtt_connected and (time.time() - start_time) < max_wait:
-            sleep(0.1)
+        # Wait for all brokers to complete their initial connection attempt
+        max_wait = 10  # seconds per broker
+        for mqtt_info in self.mqtt_clients:
+            broker_num = mqtt_info['broker_num']
+            event = self.connection_events.get(broker_num)
+            if event:
+                # Wait for this specific broker to complete (success or fail)
+                event.wait(timeout=max_wait)
         
-        return self.mqtt_connected
+        # Check if at least one connected
+        if not self.mqtt_connected:
+            logger.error("No MQTT brokers connected after initial connection attempts")
+            return False
+        
+        return True
     
     def reconnect_disconnected_brokers(self):
         """Check and reconnect any disconnected brokers with exponential backoff"""
@@ -802,6 +820,9 @@ class MeshCoreBridge:
         self.model = self.get_board_type()
         if not self.model:
             logger.warning("Failed to get board type - will continue without it")
+        
+        # Log client version
+        logger.info(f"Client version: {self.client_version}")
         
         # Initial MQTT connection
         retry_count = 0
