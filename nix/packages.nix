@@ -5,7 +5,17 @@
     pkgs,
     self',
     ...
-  }: {
+  }: let
+    version-info = pkgs.writeTextFile {
+      name = "version-info";
+      destination = "/.version_info";
+      text = builtins.toJSON {
+        installer_version = "Nix package build";
+        git_hash = self.ref or "unknown";
+        install_date = "unknown";
+      };
+    };
+  in {
     # Package definitions
     packages.meshcore-decoder = pkgs.buildNpmPackage {
       name = "@michaelhart/meshcore-decoder";
@@ -51,7 +61,7 @@
         install -Dm755 mctomqtt.py $out/${pkgs.python313.sitePackages}/mctomqtt.py
         install -Dm755 auth_token.py $out/${pkgs.python313.sitePackages}/auth_token.py
         # Copy the pre-generated version info file
-        install -Dm644 ${self'.packages.version-info}/.version_info $out/${pkgs.python313.sitePackages}/.version_info
+        install -Dm644 ${version-info}/.version_info $out/${pkgs.python313.sitePackages}/.version_info
 
 
         # Create executable wrapper for mctomqtt
@@ -67,15 +77,6 @@
         mainProgram = "meshcoretomqtt";
         license = pkgs.lib.licenses.mit;
         homepage = "https://github.com/Cisien/meshcoretomqtt";
-      };
-    };
-    packages.version-info = pkgs.writeTextFile {
-      name = "version-info";
-      destination = "/.version_info";
-      text = builtins.toJSON {
-        installer_version = "Nix package build";
-        git_hash = self.ref or "unknown";
-        install_date = "unknown";
       };
     };
   };

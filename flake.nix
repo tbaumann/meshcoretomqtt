@@ -17,11 +17,8 @@
         ./nix/packages.nix
         ./nix/shell.nix
         ./nix/nixos-test.nix
+        ./nix/nixos-module.nix
       ];
       systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
-      flake = {
-        # Export NixOS module
-        nixosModules.default = import ./nix/nixos-module.nix;
-      };
     };
 }

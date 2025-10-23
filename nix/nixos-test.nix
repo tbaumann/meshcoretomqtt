@@ -26,16 +26,7 @@
         pkgs,
         ...
       }: {
-        imports = [./nixos-module.nix];
-
-        /*
-        # Override the package with our mock for testing
-        nixpkgs.overlays = [
-          (final: prev: {
-            mctomqtt = mockMctomqtt;
-          })
-        ];
-        */
+        imports = [self.nixosModules.default];
 
         services.mctomqtt = {
           enable = true;
