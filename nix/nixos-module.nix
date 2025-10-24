@@ -37,6 +37,33 @@
             broker
         )
         brokers);
+
+    # Default broker configurations
+    letsmeshUsConfig = {
+      enabled = true;
+      server = "mqtt-us-v1.letsmesh.net";
+      port = 443;
+      transport = "websockets";
+      use-tls = true;
+      use-auth-token = true;
+      token-audience = "mqtt-us-v1.letsmesh.net";
+    };
+
+    letsmeshEuConfig = {
+      enabled = true;
+      server = "mqtt-eu-v1.letsmesh.net";
+      port = 443;
+      transport = "websockets";
+      use-tls = true;
+      use-auth-token = true;
+      token-audience = "mqtt-eu-v1.letsmesh.net";
+    };
+
+    # Combine default brokers with user-defined brokers
+    allBrokers =
+      lib.optional (cfg.defaults.letsmesh-us.enable) letsmeshUsConfig
+      ++ lib.optional (cfg.defaults.letsmesh-eu.enable) letsmeshEuConfig
+      ++ cfg.brokers;
   in {
     options.services.mctomqtt = {
       enable = lib.mkEnableOption "MeshCore to MQTT bridge service";
@@ -64,7 +91,7 @@
       brokers = lib.mkOption {
         type = lib.types.listOf (lib.types.attrsOf lib.types.anything);
         default = [];
-        description = "List of MQTT broker configurations";
+        description = "List of MQTT broker configurations (appended after default brokers)";
         example = lib.literalExpression ''
           [
             {
@@ -96,6 +123,23 @@
             log-level = "INFO";
           }
         '';
+      };
+
+      defaults = {
+        letsmesh-us = {
+          enable = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Enable the LetsMesh US broker (mqtt-us-v1.letsmesh.net)";
+          };
+        };
+        letsmesh-eu = {
+          enable = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Enable the LetsMesh EU broker (mqtt-eu-v1.letsmesh.net)";
+          };
+        };
       };
     };
 
@@ -154,7 +198,7 @@
               "MCTOMQTT_SERIAL_PORTS=${lib.concatStringsSep "," cfg.serialPorts}"
             ]
             ++ settingsToEnv cfg.settings
-            ++ brokersToEnv cfg.brokers;
+            ++ brokersToEnv allBrokers;
         };
 
         # Ensure serial devices are available

@@ -91,18 +91,28 @@ services.mctomqtt = {
     iata = "EDFQ";
     serialPorts = ["/dev/ttyUSB0"];
 
+    # Disable defaults if you like.
+    # Defaults are use if nothing is specified
+    defaults = {
+        letsmesh-us.enable = true;
+        letsmesh-eu.enable = true;
+    };
+
+    # Define custom brokers if you need them
     brokers = [
       {
         enabled = true;
-        server = "mqtt-us-v1.letsmesh.net";
-        port = 334;
-        transport = "websockets";
+        server = "mqtt.example.com";
+        port = 1883;
         use-tls = true;
-        token-audience = "mqtt-us-v1.letsmesh.net";
         use-auth-token = true;
+        username = "my_username";
+        password = "my_password";
       }
     ];
 
+    # Additional settings
+    # foo-bar becomes MCTOMQTT_FOO_BAR
     settings = {
       log-level = "DEBUG";
     };
@@ -510,4 +520,3 @@ Topic: meshcore/packets QoS: 0
 
 - Complete more thorough testing
 - Fix bugs with keepalive status topic
-

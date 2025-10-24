@@ -33,6 +33,8 @@
           package = mockMctomqtt;
           iata = "TEST";
           serialPorts = ["/dev/ttyS1"];
+          defaults.letsmesh-us.enable = false;
+          defaults.letsmesh-eu.enable = true;
 
           brokers = [
             {
@@ -48,20 +50,6 @@
               keepalive = 30;
               username = "user1";
               password = "pass1";
-            }
-            {
-              enabled = true;
-              server = "mqtt2.example.com";
-              port = 8883;
-              transport = "websockets";
-              use-tls = true;
-              tls-verify = false;
-              client-id-prefix = "test2_";
-              qos = 2;
-              retain = true;
-              keepalive = 45;
-              username = "user2";
-              password = "pass2";
             }
           ];
 
@@ -106,31 +94,26 @@
 
           # Broker 1 configuration
           machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_ENABLED=true'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_SERVER=mqtt1.example.com'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_PORT=1883'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_TRANSPORT=tcp'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_USE_TLS=false'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_TLS_VERIFY=true'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_CLIENT_ID_PREFIX=test_'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_QOS=1'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_RETAIN=false'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_KEEPALIVE=30'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_USERNAME=user1'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_PASSWORD=pass1'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_SERVER=mqtt-eu-v1.letsmesh.net'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_PORT=443'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_TRANSPORT=websockets'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_USE_TLS=true'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_USE_AUTH_TOKEN=true'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT1_TOKEN_AUDIENCE=mqtt-eu-v1.letsmesh.net'")
 
           # Broker 2 configuration
           machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_ENABLED=true'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_SERVER=mqtt2.example.com'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_PORT=8883'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_TRANSPORT=websockets'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_USE_TLS=true'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_TLS_VERIFY=false'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_CLIENT_ID_PREFIX=test2_'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_QOS=2'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_RETAIN=true'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_KEEPALIVE=45'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_USERNAME=user2'")
-          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_PASSWORD=pass2'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_SERVER=mqtt1.example.com'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_PORT=1883'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_TRANSPORT=tcp'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_USE_TLS=false'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_TLS_VERIFY=true'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_CLIENT_ID_PREFIX=test_'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_QOS=1'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_RETAIN=false'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_KEEPALIVE=30'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_USERNAME=user1'")
+          machine.succeed("systemctl show mctomqtt.service | grep -q 'MCTOMQTT_MQTT2_PASSWORD=pass1'")
 
         # Check service dependencies
         machine.succeed("systemctl show mctomqtt.service | grep 'After='    | grep -q 'dev-ttyS1.device'")
