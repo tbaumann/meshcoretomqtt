@@ -18,7 +18,7 @@
   in {
     # Package definitions
     packages.meshcore-decoder = pkgs.buildNpmPackage {
-      name = "@michaelhart/meshcore-decoder";
+      name = "meshcore-decoder";
       version = "0.2.3";
 
       src = pkgs.fetchurl {

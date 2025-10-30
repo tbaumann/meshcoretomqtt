@@ -166,7 +166,7 @@
 
         serviceConfig = {
           Type = "simple";
-          ExecStart = "${lib.getExe cfg.package}";
+          ExecStart = "${cfg.package}/bin/mctomqtt";
           Restart = "on-failure";
 
           # Run as dedicated user
