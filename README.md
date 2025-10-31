@@ -88,7 +88,7 @@ in your system config
 imports = [inputs.meshcoretomqtt.nixosModules.default];
 services.mctomqtt = {
     enable = true;
-    iata = "EDFQ";
+    iata = "FOO";
     serialPorts = ["/dev/ttyUSB0"];
 
     # Disable defaults if you like.

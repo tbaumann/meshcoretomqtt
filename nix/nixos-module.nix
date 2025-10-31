@@ -76,9 +76,9 @@
       };
 
       iata = lib.mkOption {
-        type = lib.types.strMatching "^[A-Z]{3,4}$";
+        type = lib.types.strMatching "^[A-Z]{3}$";
         example = "XXX";
-        description = "Three or four letter IATA code for geographic region";
+        description = "Three letter IATA code for geographic region";
       };
 
       serialPorts = lib.mkOption {
